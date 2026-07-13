@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, asdict
+from pathlib import Path
 
 
 @dataclass
@@ -70,14 +73,61 @@ def check_gh_auth(gh_check: Check) -> Check:
     return Check(name="gh_auth", status="warn", detail=f"{first_line}; public GitHub analysis can still use git or web")
 
 
+def check_python_package(import_name: str, display_name: str) -> Check:
+    spec = importlib.util.find_spec(import_name)
+    if spec is None:
+        return Check(name=display_name, status="missing", detail=f"{display_name} is not installed")
+    return Check(name=display_name, status="ok", detail=f"{display_name} is importable")
+
+
+def check_tavily_key() -> Check:
+    if os.environ.get("TAVILY_API_KEY"):
+        return Check(name="tavily_api_key", status="ok", detail="TAVILY_API_KEY is set")
+    return Check(
+        name="tavily_api_key",
+        status="warn",
+        detail="TAVILY_API_KEY is not set; Tavily calls may fail or use limited keyless behavior",
+    )
+
+
+def check_tavily_online(enabled: bool, tavily_check: Check) -> Check:
+    if not enabled:
+        return Check(name="tavily_online", status="skipped", detail="Use --online to run a live Tavily API check")
+    if tavily_check.status != "ok":
+        return Check(name="tavily_online", status="missing", detail="tavily-python is missing")
+
+    result = run_command(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("reach_web.py")),
+            "search",
+            "Tavily API test",
+            "--max-results",
+            "1",
+            "--timeout",
+            "20",
+        ],
+        timeout=30,
+    )
+    if result is None:
+        return Check(name="tavily_online", status="warn", detail="Tavily online check did not complete")
+    if result.returncode == 0:
+        return Check(name="tavily_online", status="ok", detail="Tavily search request succeeded")
+
+    output = (result.stdout + result.stderr).strip()
+    first_line = output.splitlines()[0] if output else "Tavily search request failed"
+    return Check(name="tavily_online", status="warn", detail=first_line)
+
+
 def capability_status(checks: dict[str, Check]) -> dict[str, dict[str, str]]:
     curl = checks["curl"]
     git = checks["git"]
     gh = checks["gh"]
     gh_auth = checks["gh_auth"]
+    tavily = checks["tavily_python"]
 
-    search_status = "ok" if curl.status == "ok" else "warn"
-    web_status = "ok" if curl.status == "ok" else "warn"
+    search_status = "ok" if tavily.status == "ok" else "warn"
+    web_status = "ok" if tavily.status == "ok" else ("ok" if curl.status == "ok" else "warn")
 
     if git.status == "ok" or gh.status == "ok":
         github_status = "ok"
@@ -87,15 +137,19 @@ def capability_status(checks: dict[str, Check]) -> dict[str, dict[str, str]]:
     return {
         "search": {
             "status": search_status,
-            "detail": "Search routing is skill-driven; curl helps inspect discovered web results."
-            if curl.status == "ok"
-            else "Search routing is skill-driven, but curl is missing for local result inspection.",
+            "detail": "Tavily is available through scripts/reach_web.py search."
+            if tavily.status == "ok"
+            else "Tavily is missing; search falls back to environment-provided web tools.",
         },
         "web": {
             "status": web_status,
-            "detail": "curl is available for basic web page reads."
-            if curl.status == "ok"
-            else "curl is missing; use built-in browser or web reader tools when available.",
+            "detail": "Tavily extract is available through scripts/reach_web.py extract."
+            if tavily.status == "ok"
+            else (
+                "curl is available for basic web page reads."
+                if curl.status == "ok"
+                else "curl is missing; use built-in browser or web reader tools when available."
+            ),
         },
         "github": {
             "status": github_status,
@@ -110,14 +164,17 @@ def capability_status(checks: dict[str, Check]) -> dict[str, dict[str, str]]:
     }
 
 
-def build_report() -> dict[str, object]:
+def build_report(online: bool = False) -> dict[str, object]:
     checks = {
         "python": check_python(),
         "git": check_command("git"),
         "gh": check_command("gh"),
         "curl": check_command("curl"),
+        "tavily_python": check_python_package("tavily", "tavily_python"),
+        "tavily_api_key": check_tavily_key(),
     }
     checks["gh_auth"] = check_gh_auth(checks["gh"])
+    checks["tavily_online"] = check_tavily_online(online, checks["tavily_python"])
 
     return {
         "skill": "reach-skill",
@@ -145,9 +202,10 @@ def print_text(report: dict[str, object]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check Reach Skill MVP local capabilities.")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    parser.add_argument("--online", action="store_true", help="Run live provider checks that may consume API quota.")
     args = parser.parse_args()
 
-    report = build_report()
+    report = build_report(online=args.online)
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:

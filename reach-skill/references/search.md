@@ -2,6 +2,16 @@
 
 Use this reference when the user asks for broad research, comparison, discovery, or current information that is not tied to a single known URL.
 
+## Default Tool
+
+Use the encapsulated web query entrypoint:
+
+```bash
+python reach-skill/scripts/reach_web.py search "query" --max-results 5 --search-depth basic --pretty
+```
+
+Use `--search-depth advanced` only when the task needs broader discovery or the first result set is weak. Use `--include-raw-content markdown` only when the task is small; otherwise search first, choose the best URLs, then use `reach_web.py extract`.
+
 ## Query Design
 
 - Start with the user's exact terms, then add disambiguating terms such as product name, programming language, company, version, or date.
@@ -30,10 +40,11 @@ Avoid relying on low-signal pages that only aggregate or rewrite other content. 
 ## Working Pattern
 
 1. Run a narrow search for primary sources.
-2. Open the best primary sources and capture the relevant facts.
-3. If the result set is weak, broaden the search with synonyms.
-4. If sources disagree, report the disagreement and prefer the newer or more authoritative primary source.
-5. Include source links in the final answer when the environment supports browsing links.
+2. Choose 3-5 promising URLs from the returned results.
+3. Extract the selected URLs with `reach_web.py extract` when the answer needs page-level evidence.
+4. If the result set is weak, broaden the search with synonyms.
+5. If sources disagree, report the disagreement and prefer the newer or more authoritative primary source.
+6. Include source links in the final answer when the environment supports browsing links.
 
 ## Fallbacks
 

@@ -2,9 +2,19 @@
 
 Use this reference when the user provides one or more URLs or asks to summarize, inspect, or extract facts from a web page.
 
+## Default Tool
+
+Use the encapsulated page extraction entrypoint:
+
+```bash
+python reach-skill/scripts/reach_web.py extract "https://example.com/page" --format markdown --pretty
+```
+
+Pass multiple URLs in one call when comparing sources. Use `--extract-depth advanced` only when basic extraction misses important content.
+
 ## Reading Order
 
-1. Fetch or open the provided URL.
+1. Extract the provided URL with `reach_web.py extract`.
 2. Identify the page title, publisher, date if present, and main content area.
 3. Extract only the sections relevant to the user's request.
 4. Follow links only when needed to resolve missing context, definitions, citations, or next-step documentation.

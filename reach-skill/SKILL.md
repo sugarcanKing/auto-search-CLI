@@ -1,6 +1,6 @@
 ---
 name: reach-skill
-description: Research and retrieve public information from web search, web pages, and GitHub repositories. Use when Codex needs to investigate a topic online, design search queries, read and summarize URLs, compare public sources, inspect public GitHub repositories, or decide which web/GitHub retrieval path to use. Do not use for video subtitles, social media account automation, posting, form submission, private data access, or credential management.
+description: Research and retrieve public information from Tavily-backed web search, web page extraction, and GitHub repositories. Use when Codex needs to investigate a topic online, design search queries, read and summarize URLs, compare public sources, inspect public GitHub repositories, or decide which web/GitHub retrieval path to use. Do not use for video subtitles, social media account automation, posting, form submission, private data access, or credential management.
 ---
 
 # Reach Skill
@@ -9,24 +9,30 @@ description: Research and retrieve public information from web search, web pages
 
 Use this skill as a routing layer for lightweight online research. First classify the user's intent, then choose the smallest reliable retrieval path, then cite or name the sources used.
 
-This MVP covers only:
+This skill covers only:
 
-- Web search
-- Web page reading
+- Web search through the encapsulated `scripts/reach_web.py search` entrypoint
+- Web page extraction through the encapsulated `scripts/reach_web.py extract` entrypoint
 - Public GitHub repository analysis
 
 ## Routing
 
 | User intent | First path | Fallback | Reference |
 | --- | --- | --- | --- |
-| Research a broad topic, product, company, library, or error | Search the web with targeted queries | Search official domains, docs, or GitHub directly | `references/search.md` |
-| Read, summarize, or extract facts from one or more URLs | Fetch/read the page content directly | Use a browser/rendered page when static fetch fails | `references/web.md` |
+| Research a broad topic, product, company, library, or error | Use `scripts/reach_web.py search` with targeted queries | Search official domains, docs, or GitHub directly | `references/search.md` |
+| Read, summarize, or extract facts from one or more URLs | Use `scripts/reach_web.py extract` on selected URLs | Use curl or a browser/rendered page when extraction fails | `references/web.md` |
 | Understand a public GitHub repository | Inspect README, manifest files, and directory structure | Use `gh`, `git`, or raw GitHub URLs depending on availability | `references/github.md` |
 
 Before complex GitHub or local-tool workflows, run:
 
 ```bash
 python reach-skill/scripts/doctor.py
+```
+
+To verify live Tavily access when quota use is acceptable, run:
+
+```bash
+python reach-skill/scripts/doctor.py --online
 ```
 
 For machine-readable status, run:
@@ -50,7 +56,7 @@ python reach-skill/scripts/doctor.py --json
 - Do not log in, manage cookies, harvest credentials, or bypass access controls.
 - Do not post, comment, vote, submit forms, open issues, or mutate remote systems.
 - Do not scrape private or gated content.
-- Do not install tools automatically. If a missing tool blocks a route, explain the missing tool and use an available fallback.
+- Do not install tools automatically. If `tavily-python` or `TAVILY_API_KEY` is missing, explain the missing dependency and use an available fallback.
 - Do not handle video subtitle workflows in this MVP.
 - Do not treat this skill as a general report-writing skill; use it only for retrieval and source-grounded investigation.
 
