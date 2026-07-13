@@ -7,10 +7,11 @@ Use this reference when the user provides one or more URLs or asks to summarize,
 Use the encapsulated page extraction entrypoint:
 
 ```bash
+python reach-skill/scripts/reach_web.py auto "https://example.com/page" --pretty
 python reach-skill/scripts/reach_web.py extract "https://example.com/page" --format markdown --pretty
 ```
 
-Pass multiple URLs in one call when comparing sources. Use `--extract-depth advanced` only when basic extraction misses important content.
+Use `auto` when the input may be either a URL or a query. It extracts direct HTTP URLs and searches non-URL text. Pass multiple URLs to `extract` when comparing sources. Use `--extract-depth advanced` only when basic extraction misses important content.
 
 ## Reading Order
 
@@ -43,3 +44,5 @@ If both static and rendered access fail, explain what failed and use search to f
 - Search the exact page title or URL.
 - For GitHub-hosted docs, switch to `github.md` and inspect the repository directly.
 - If the page is gated, private, or blocked, do not bypass it; ask for accessible content or use public alternatives.
+- If `reach_web.py` returns `timeout`, retry once with a narrower URL or shorter task; then switch to search or browser fallback.
+- If it returns `network_resolution` or `network_connection`, treat it as environment/network instability rather than missing content.

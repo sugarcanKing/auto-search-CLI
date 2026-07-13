@@ -119,6 +119,33 @@ def check_tavily_online(enabled: bool, tavily_check: Check) -> Check:
     return Check(name="tavily_online", status="warn", detail=first_line)
 
 
+def check_github_online(enabled: bool, gh_check: Check) -> Check:
+    if not enabled:
+        return Check(name="github_online", status="skipped", detail="Use --online to run a live GitHub CLI check")
+    if gh_check.status == "missing":
+        return Check(name="github_online", status="missing", detail="gh is missing")
+
+    result = run_command(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("reach_github.py")),
+            "view",
+            "cli/cli",
+            "--timeout",
+            "20",
+        ],
+        timeout=30,
+    )
+    if result is None:
+        return Check(name="github_online", status="warn", detail="GitHub CLI online check did not complete")
+    if result.returncode == 0:
+        return Check(name="github_online", status="ok", detail="GitHub repository view request succeeded")
+
+    output = (result.stdout + result.stderr).strip()
+    first_line = output.splitlines()[0] if output else "GitHub CLI online check failed"
+    return Check(name="github_online", status="warn", detail=first_line)
+
+
 def capability_status(checks: dict[str, Check]) -> dict[str, dict[str, str]]:
     curl = checks["curl"]
     git = checks["git"]
@@ -153,9 +180,19 @@ def capability_status(checks: dict[str, Check]) -> dict[str, dict[str, str]]:
         },
         "github": {
             "status": github_status,
-            "detail": "git or gh is available for public repository analysis."
-            if github_status == "ok"
-            else "Neither git nor gh is available; rely on web GitHub pages only.",
+            "detail": "GitHub reads should use scripts/reach_github.py backed by gh."
+            if gh.status == "ok"
+            else (
+                "git is available for fallback repository inspection, but gh-backed search/read is unavailable."
+                if git.status == "ok"
+                else "Neither git nor gh is available; rely on web GitHub pages only."
+            ),
+        },
+        "github_cli": {
+            "status": gh.status,
+            "detail": "gh is available for GitHub search, metadata, directory listing, and file reading."
+            if gh.status == "ok"
+            else "gh is required for scripts/reach_github.py GitHub search and reading.",
         },
         "github_auth": {
             "status": gh_auth.status,
@@ -175,6 +212,7 @@ def build_report(online: bool = False) -> dict[str, object]:
     }
     checks["gh_auth"] = check_gh_auth(checks["gh"])
     checks["tavily_online"] = check_tavily_online(online, checks["tavily_python"])
+    checks["github_online"] = check_github_online(online, checks["gh"])
 
     return {
         "skill": "reach-skill",

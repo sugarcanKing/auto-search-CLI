@@ -1,6 +1,6 @@
 ---
 name: reach-skill
-description: Research and retrieve public information from Tavily-backed web search, web page extraction, and GitHub repositories. Use when Codex needs to investigate a topic online, design search queries, read and summarize URLs, compare public sources, inspect public GitHub repositories, or decide which web/GitHub retrieval path to use. Do not use for video subtitles, social media account automation, posting, form submission, private data access, or credential management.
+description: Research and retrieve public information from Tavily-backed web search, web page extraction, and gh-backed GitHub repositories. Use when Codex needs to investigate a topic online, design search queries, read and summarize URLs, compare public sources, search GitHub repositories, inspect public GitHub repositories, or decide which web/GitHub retrieval path to use. Do not use for video subtitles, social media account automation, posting, form submission, private data access, or credential management.
 ---
 
 # Reach Skill
@@ -13,15 +13,19 @@ This skill covers only:
 
 - Web search through the encapsulated `scripts/reach_web.py search` entrypoint
 - Web page extraction through the encapsulated `scripts/reach_web.py extract` entrypoint
-- Public GitHub repository analysis
+- Automatic web input routing through `scripts/reach_web.py auto`
+- Public GitHub repository search and analysis through the encapsulated `scripts/reach_github.py` entrypoint
 
 ## Routing
 
-| User intent | First path                                                           | Fallback | Reference |
-| --- |----------------------------------------------------------------------| --- | --- |
-| Research a broad topic, product, company, library, or error | Use ` reach-skill/scripts/reach_web.py search` with targeted queries | Search official domains, docs, or GitHub directly | `references/search.md` |
-| Read, summarize, or extract facts from one or more URLs | Use `scripts/reach_web.py extract` on selected URLs                  | Use curl or a browser/rendered page when extraction fails | `references/web.md` |
-| Understand a public GitHub repository | Inspect README, manifest files, and directory structure              | Use `gh`, `git`, or raw GitHub URLs depending on availability | `references/github.md` |
+| User intent | First path | Fallback | Reference |
+| --- | --- | --- | --- |
+| User gives a non-GitHub URL | Use `scripts/reach_web.py auto URL` or `scripts/reach_web.py extract URL` | Use curl or browser rendering when extraction fails | `references/web.md` |
+| User gives a GitHub URL | Use `scripts/reach_github.py auto URL` | Use GitHub web/raw URLs when `gh` is unavailable | `references/github.md` |
+| Research a broad topic, product, company, library, or error | Use `scripts/reach_web.py auto "query"` or `scripts/reach_web.py search` | Search official domains, docs, or GitHub directly | `references/search.md` |
+| Read, summarize, or extract facts from one or more URLs | Use `scripts/reach_web.py extract` on selected URLs | Use curl or a browser/rendered page when extraction fails | `references/web.md` |
+| Search for GitHub repositories | Use `scripts/reach_github.py search` with targeted query terms | Use web search with `site:github.com` when `gh` is unavailable | `references/github.md` |
+| Understand a public GitHub repository | Use `scripts/reach_github.py auto` or `scripts/reach_github.py inspect` on `OWNER/REPO` | Use `git`, raw GitHub URLs, or web reading when `gh` is unavailable | `references/github.md` |
 
 Before complex GitHub or local-tool workflows, run:
 
@@ -56,7 +60,9 @@ python reach-skill/scripts/doctor.py --json
 - Do not log in, manage cookies, harvest credentials, or bypass access controls.
 - Do not post, comment, vote, submit forms, open issues, or mutate remote systems.
 - Do not scrape private or gated content.
-- Do not install tools automatically. If `tavily-python` or `TAVILY_API_KEY` is missing, explain the missing dependency and use an available fallback.
+- Do not install tools automatically. If `tavily-python`, `TAVILY_API_KEY`, or `gh` is missing, explain the missing dependency and use an available fallback.
+- Treat `not_found_or_private`, `auth_required`, and `forbidden_or_rate_limited` wrapper errors as terminal until the user provides access or a different public source.
+- Use wrapper timeouts instead of long-running manual retries. If a provider times out repeatedly, report the failure and switch fallback route.
 - Do not handle video subtitle workflows in this MVP.
 - Do not treat this skill as a general report-writing skill; use it only for retrieval and source-grounded investigation.
 

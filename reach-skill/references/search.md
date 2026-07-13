@@ -7,10 +7,11 @@ Use this reference when the user asks for broad research, comparison, discovery,
 Use the encapsulated web query entrypoint:
 
 ```bash
+python reach-skill/scripts/reach_web.py auto "query or URL" --pretty
 python reach-skill/scripts/reach_web.py search "query" --max-results 5 --search-depth basic --pretty
 ```
 
-Use `--search-depth advanced` only when the task needs broader discovery or the first result set is weak. Use `--include-raw-content markdown` only when the task is small; otherwise search first, choose the best URLs, then use `reach_web.py extract`.
+Use `auto` when the input may be a URL. It routes direct HTTP URLs to extraction instead of wasting a search call. Use `--search-depth advanced` only when the task needs broader discovery or the first result set is weak. Use `--include-raw-content markdown` only when the task is small; otherwise search first, choose the best URLs, then use `reach_web.py extract`.
 
 ## Query Design
 
