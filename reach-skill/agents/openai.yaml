@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reach Skill"
+  short_description: "Research web pages, search results, and GitHub repos"
+  default_prompt: "Use $reach-skill to research this topic across web pages, search results, and GitHub repositories."
