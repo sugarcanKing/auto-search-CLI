@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto-reach"
+version = "0.1.0"
+description = "Capability layer for web search, web extraction, and GitHub repository reading."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "tavily-python==0.7.26",
+]
+
+[project.scripts]
+auto-reach = "auto_reach.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["auto_reach*"]

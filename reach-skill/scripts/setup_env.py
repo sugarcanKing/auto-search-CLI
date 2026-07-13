@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibility wrapper for Auto Reach web commands."""
+"""Compatibility wrapper for Auto Reach dependency setup."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from auto_reach.providers.web import main  # noqa: E402
+from auto_reach.install import main  # noqa: E402
 
 
 if __name__ == "__main__":
