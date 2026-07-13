@@ -9,6 +9,15 @@ Auto Reach is a lightweight capability layer for Agent research workflows. It pr
 
 The Skill is only the Agent-facing routing guide. The reusable runtime lives in `auto_reach/`.
 
+## Project Layout
+
+```text
+auto_reach/           # Runtime package and CLI implementation
+skill/reach-skill/    # Codex Skill instructions that route Agents to Auto Reach
+requirements.txt      # Runtime Python dependencies
+pyproject.toml        # Package metadata and auto-reach console script
+```
+
 ## Quick Start
 
 ```bash
