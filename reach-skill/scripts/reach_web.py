@@ -91,6 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     search_parser.add_argument("--include-usage", action="store_true", help="Include Tavily usage details.")
     search_parser.add_argument("--timeout", type=float, default=60)
+    search_parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
     search_parser.set_defaults(func=search)
 
     extract_parser = subparsers.add_parser("extract", help="Extract readable content from URLs through Tavily.")
@@ -99,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     extract_parser.add_argument("--format", choices=["markdown", "text"], default="markdown")
     extract_parser.add_argument("--include-usage", action="store_true", help="Include Tavily usage details.")
     extract_parser.add_argument("--timeout", type=float, default=30)
+    extract_parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
     extract_parser.set_defaults(func=extract)
 
     return parser

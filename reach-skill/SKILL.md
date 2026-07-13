@@ -17,11 +17,11 @@ This skill covers only:
 
 ## Routing
 
-| User intent | First path | Fallback | Reference |
-| --- | --- | --- | --- |
-| Research a broad topic, product, company, library, or error | Use `scripts/reach_web.py search` with targeted queries | Search official domains, docs, or GitHub directly | `references/search.md` |
-| Read, summarize, or extract facts from one or more URLs | Use `scripts/reach_web.py extract` on selected URLs | Use curl or a browser/rendered page when extraction fails | `references/web.md` |
-| Understand a public GitHub repository | Inspect README, manifest files, and directory structure | Use `gh`, `git`, or raw GitHub URLs depending on availability | `references/github.md` |
+| User intent | First path                                                           | Fallback | Reference |
+| --- |----------------------------------------------------------------------| --- | --- |
+| Research a broad topic, product, company, library, or error | Use ` reach-skill/scripts/reach_web.py search` with targeted queries | Search official domains, docs, or GitHub directly | `references/search.md` |
+| Read, summarize, or extract facts from one or more URLs | Use `scripts/reach_web.py extract` on selected URLs                  | Use curl or a browser/rendered page when extraction fails | `references/web.md` |
+| Understand a public GitHub repository | Inspect README, manifest files, and directory structure              | Use `gh`, `git`, or raw GitHub URLs depending on availability | `references/github.md` |
 
 Before complex GitHub or local-tool workflows, run:
 
