@@ -13,11 +13,17 @@ auto-reach web auto "query or URL" --pretty
 
 Use `web auto` when the input may be a URL. It routes direct HTTP URLs to extraction. Use `--search-depth advanced` only when the first result set is weak or the task needs broader discovery. Use `--include-raw-content markdown` only for small tasks; otherwise search first, choose URLs, then extract.
 
-If doctor reports `tavily_python` as missing, stop and ask the user to run:
+If doctor reports `tavily_python` as missing, inspect `doctor --json`:
 
 ```bash
-auto-reach install --install python
+auto-reach doctor --json
 ```
+
+Then use `agent_guidance.channels.web`.
+
+- If `status` is `setup_required` and `safe_to_execute_setup` is `true`, run `dry_run_command`, inspect that it only installs Auto Reach Python requirements, then run `execute_command`.
+- If `next_actions` mentions `TAVILY_API_KEY`, report it to the user; do not create or edit credentials automatically.
+- After successful setup, rerun `auto-reach doctor --json`, then retry `auto-reach search`.
 
 ## Query Design
 

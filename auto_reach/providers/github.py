@@ -11,6 +11,9 @@ from dataclasses import dataclass
 from typing import Any, Sequence
 from urllib.parse import quote, unquote, urlparse
 
+from .base import clamp_timeout as clamp_timeout_value
+from .base import emit_json, provider_error, provider_success, run_process
+
 
 SEARCH_FIELDS = [
     "fullName",
@@ -80,12 +83,11 @@ class GhError(RuntimeError):
 
 
 def emit(payload: dict[str, Any], pretty: bool) -> None:
-    indent = 2 if pretty else None
-    print(json.dumps(payload, ensure_ascii=False, indent=indent, sort_keys=pretty))
+    emit_json(payload, pretty)
 
 
 def clamp_timeout(value: float) -> float:
-    return max(1.0, min(value, MAX_GH_TIMEOUT))
+    return clamp_timeout_value(value, MAX_GH_TIMEOUT)
 
 
 def classify_gh_error(exc: Exception) -> dict[str, Any]:
@@ -133,7 +135,7 @@ def run_gh(args: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
     command = ["gh", *args]
     timeout = clamp_timeout(timeout)
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
+        result = run_process(command, timeout)
     except subprocess.TimeoutExpired as exc:
         raise GhError(f"gh command timed out after {timeout} seconds", command=command) from exc
     except OSError as exc:
@@ -265,23 +267,28 @@ def command_search(args: argparse.Namespace) -> dict[str, Any]:
     for match in args.match:
         gh_args.extend(["--match", match])
 
-    return {
-        "operation": "search",
-        "provider": "gh",
-        "query": args.query,
-        "result": run_gh_json(gh_args, args.timeout),
-    }
+    return provider_success(
+        operation="search",
+        provider="gh",
+        channel="github",
+        backend="gh",
+        input=args.query,
+        query=args.query,
+        result=run_gh_json(gh_args, args.timeout),
+    )
 
 
 def command_view(args: argparse.Namespace) -> dict[str, Any]:
     target = parse_github_target(args.repo)
-    return {
-        "operation": "view",
-        "provider": "gh",
-        "repo": target.repo,
-        "input": args.repo,
-        "result": run_gh_json(["repo", "view", target.repo, "--json", ",".join(VIEW_FIELDS)], args.timeout),
-    }
+    return provider_success(
+        operation="view",
+        provider="gh",
+        channel="github",
+        backend="gh",
+        input=args.repo,
+        repo=target.repo,
+        result=run_gh_json(["repo", "view", target.repo, "--json", ",".join(VIEW_FIELDS)], args.timeout),
+    )
 
 
 def command_read_dir(args: argparse.Namespace) -> dict[str, Any]:
@@ -309,16 +316,18 @@ def command_read_dir(args: argparse.Namespace) -> dict[str, Any]:
         except GhError:
             raise read_dir_error
 
-    return {
-        "operation": "read-dir",
-        "provider": "gh",
-        "source": source,
-        "repo": target.repo,
-        "input": args.repo,
-        "path": path,
-        "ref": ref,
-        "result": result,
-    }
+    return provider_success(
+        operation="read-dir",
+        provider="gh",
+        channel="github",
+        backend="gh",
+        input=args.repo,
+        source=source,
+        repo=target.repo,
+        path=path,
+        ref=ref,
+        result=result,
+    )
 
 
 def command_read_file(args: argparse.Namespace) -> dict[str, Any]:
@@ -345,16 +354,18 @@ def command_read_file(args: argparse.Namespace) -> dict[str, Any]:
         except GhError:
             raise read_file_error
 
-    return {
-        "operation": "read-file",
-        "provider": "gh",
-        "source": source,
-        "repo": target.repo,
-        "input": args.repo,
-        "path": path,
-        "ref": ref,
-        "result": result,
-    }
+    return provider_success(
+        operation="read-file",
+        provider="gh",
+        channel="github",
+        backend="gh",
+        input=args.repo,
+        source=source,
+        repo=target.repo,
+        path=path,
+        ref=ref,
+        result=result,
+    )
 
 
 def try_read_file(repo: str, path: str, ref: str | None, timeout: float) -> dict[str, Any]:
@@ -362,13 +373,16 @@ def try_read_file(repo: str, path: str, ref: str | None, timeout: float) -> dict
     try:
         return command_read_file(namespace)
     except GhError as exc:
-        return {
-            "operation": "read-file",
-            "provider": "gh",
-            "repo": repo,
-            "path": path,
-            "error": {"type": exc.__class__.__name__, "message": str(exc)},
-        }
+        return provider_error(
+            operation="read-file",
+            provider="gh",
+            channel="github",
+            backend="gh",
+            input=repo,
+            repo=repo,
+            path=path,
+            error={"type": exc.__class__.__name__, "message": str(exc)},
+        )
 
 
 def command_inspect(args: argparse.Namespace) -> dict[str, Any]:
@@ -383,17 +397,19 @@ def command_inspect(args: argparse.Namespace) -> dict[str, Any]:
         if "result" in payload:
             files[path] = payload
 
-    return {
-        "operation": "inspect",
-        "provider": "gh",
-        "repo": normalized.repo,
-        "input": target.original,
-        "result": {
+    return provider_success(
+        operation="inspect",
+        provider="gh",
+        channel="github",
+        backend="gh",
+        input=target.original,
+        repo=normalized.repo,
+        result={
             "metadata": view_payload.get("result"),
             "root": dir_payload.get("result"),
             "files": files,
         },
-    }
+    )
 
 
 def command_auto(args: argparse.Namespace) -> dict[str, Any]:
@@ -515,11 +531,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             if exc.stderr:
                 error["stderr"] = exc.stderr
         emit(
-            {
-                "operation": getattr(args, "command", "unknown"),
-                "provider": "gh",
-                "error": error,
-            },
+            provider_error(
+                operation=getattr(args, "command", "unknown"),
+                provider="gh",
+                channel="github",
+                backend="gh",
+                input=getattr(args, "repo", getattr(args, "input", None)),
+                error=error,
+            ),
             bool(getattr(args, "pretty", False)),
         )
         return 1

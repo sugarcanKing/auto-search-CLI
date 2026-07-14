@@ -1,13 +1,13 @@
 ---
 name: reach-skill
-description: Route public research tasks through the Auto Reach capability layer for Tavily-backed web search, Tavily-backed page extraction, and gh-backed GitHub repository reading. Use for online topic research, URL summarization, source comparison, GitHub repository search, GitHub URL routing, and public repository inspection. Do not use for video subtitles, social media automation, posting, form submission, private data access, credential management, or dependency installation unless the user explicitly asks for setup.
+description: Route public research tasks through the Auto Reach capability layer for Tavily-backed web search, Tavily-backed page extraction, gh-backed GitHub repository reading, and bili-cli-backed Bilibili reading. Use for online topic research, URL summarization, source comparison, GitHub repository search, GitHub URL routing, public repository inspection, Bilibili video lookup, and Bilibili search. Do not use for social media automation, posting, form submission, private data access, credential management, Bilibili write actions, Bilibili audio download workflows, or dependency installation unless the user explicitly asks for setup.
 ---
 
 # Reach Skill
 
 ## Role
 
-This Skill is the Agent-facing routing guide. The runtime implementation lives in the Auto Reach capability layer and should be called through `auto-reach` or `python -m auto_reach`.
+This Skill is the Agent-facing routing guide. The runtime implementation lives in the Auto Reach capability layer and should be called through `auto-reach`, `python -m auto_reach`, or `python3 -m auto_reach`.
 
 Always run a readiness check before retrieval:
 
@@ -19,9 +19,18 @@ If the console command is unavailable in the current environment, try:
 
 ```bash
 python -m auto_reach doctor
+python3 -m auto_reach doctor
 ```
 
-If doctor reports missing dependencies, stop the retrieval path and show the user the setup command from `auto-reach install --check`. Do not silently install dependencies during research.
+If doctor reports missing dependencies, inspect `agent_guidance.channels` in `doctor --json`. When the needed channel is `setup_required` and `safe_to_execute_setup` is `true`, run its `dry_run_command`, inspect the planned steps, then run its `execute_command` if the plan only contains expected Auto Reach dependency installs. Do not automate credentials, API keys, account login, or unexpected tools.
+
+If the user explicitly asks to configure, install, repair, update, or upgrade the environment, use setup mode:
+
+```bash
+auto-reach setup all --dry-run --pretty
+```
+
+When the user's current request already clearly authorizes setup, installation, repair, or environment configuration, run the matching `setup <target> --dry-run --pretty` first, then run `setup <target> --yes --pretty` if the plan only contains expected Auto Reach dependency steps. For ordinary research, only use automatic setup when `doctor --json` marks the needed channel as `setup_required` and `safe_to_execute_setup`. Ask before `--yes` when the plan includes unexpected tools. Use `--upgrade` only when the user explicitly asks to update or upgrade dependencies.
 
 ## Routing
 
@@ -33,12 +42,14 @@ If doctor reports missing dependencies, stop the retrieval path and show the use
 | User gives a GitHub URL or `OWNER/REPO` | `auto-reach github auto "input"` | `references/github.md` |
 | Search GitHub repositories | `auto-reach github search "query"` | `references/github.md` |
 | Inspect a public GitHub repository | `auto-reach github inspect OWNER/REPO` | `references/github.md` |
+| User gives a Bilibili URL or BV ID | `auto-reach bilibili auto "input"` | `references/bilibili.md` |
+| Search Bilibili videos | `auto-reach bilibili search "query"` | `references/bilibili.md` |
 
 Read the matching reference file before running the task command.
 
 ## Workflow
 
-1. Classify the input as web query, web URL, GitHub URL, `OWNER/REPO`, or GitHub search.
+1. Classify the input as web query, web URL, GitHub URL, `OWNER/REPO`, GitHub search, Bilibili URL, BV ID, or Bilibili search.
 2. Run `auto-reach doctor` once before local retrieval.
 3. Use one primary route from the table.
 4. Prefer primary sources: official docs, source repos, standards, release notes, vendor pages.
@@ -50,7 +61,11 @@ Read the matching reference file before running the task command.
 - Do not log in, manage cookies, harvest credentials, or bypass access controls.
 - Do not post, comment, vote, submit forms, open issues, star, fork, or mutate remote systems.
 - Do not scrape private, gated, or unauthorized content.
-- Do not install tools automatically during research.
+- Do not install arbitrary tools automatically during research.
+- Use `doctor --json` `agent_guidance` for installable local dependencies. It may authorize `setup <target> --dry-run` followed by `setup <target> --yes` for expected Auto Reach dependency installs.
+- Never automate credentials, API keys, account login, cookies, or browser auth state.
+- Do not use `yt-dlp` for Bilibili. Use `auto-reach bilibili` and report wrapper errors or Tavily fallback results.
+- Do not run Bilibili write actions such as like, coin, triple, follow, unfollow, or dynamic posting.
 - Treat `not_found_or_private`, `auth_required`, and `forbidden_or_rate_limited` as terminal until the user changes access or asks for fallback.
 - Use wrapper timeouts. If a provider times out repeatedly, report the failure and switch to an explicit fallback.
 

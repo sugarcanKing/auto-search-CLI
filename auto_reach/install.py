@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
+from .executables import find_executable
+
 
 REQUIRED_PYTHON_PACKAGES = {
     "tavily-python": "tavily",
@@ -54,17 +56,89 @@ def check_gh() -> dict[str, Any]:
     }
 
 
+def check_bili() -> dict[str, Any]:
+    path = find_executable("bili")
+    if not path:
+        return {"name": "bili", "status": "missing", "detail": "bili was not found on PATH or known tool directories", "path": None}
+
+    result = subprocess.run([path, "--version"], capture_output=True, text=True, check=False)
+    version = (result.stdout or result.stderr).strip().splitlines()
+    return {
+        "name": "bili",
+        "status": "ok" if result.returncode == 0 else "warn",
+        "detail": version[0] if version else "bili exists",
+        "path": path,
+    }
+
+
 def detect_gh_install_command() -> list[str] | None:
     if platform.system() == "Darwin" and shutil.which("brew"):
         return ["brew", "install", "gh"]
     return None
 
 
-def pip_command(user: bool) -> list[str]:
+def detect_gh_upgrade_command() -> list[str] | None:
+    if platform.system() == "Darwin" and shutil.which("brew"):
+        return ["brew", "upgrade", "gh"]
+    return None
+
+
+def detect_bili_install_command() -> list[str] | None:
+    if shutil.which("uv"):
+        return ["uv", "tool", "install", "bilibili-cli"]
+    if shutil.which("pipx"):
+        return ["pipx", "install", "bilibili-cli"]
+    return None
+
+
+def detect_bili_upgrade_command() -> list[str] | None:
+    if shutil.which("uv"):
+        return ["uv", "tool", "upgrade", "bilibili-cli"]
+    if shutil.which("pipx"):
+        return ["pipx", "upgrade", "bilibili-cli"]
+    return None
+
+
+def recommended_bili_install_commands() -> list[list[str]]:
+    commands: list[list[str]] = []
+    if platform.system() == "Darwin" and shutil.which("brew"):
+        commands.extend(
+            [
+                ["brew", "install", "uv"],
+                ["uv", "tool", "install", "bilibili-cli"],
+                ["brew", "install", "pipx"],
+                ["pipx", "install", "bilibili-cli"],
+            ]
+        )
+    else:
+        commands.extend(
+            [
+                ["uv", "tool", "install", "bilibili-cli"],
+                ["pipx", "install", "bilibili-cli"],
+            ]
+        )
+    return commands
+
+
+def bili_installer_hint() -> str:
+    if detect_bili_install_command() is not None:
+        return "Run install_command to install bilibili-cli."
+    if platform.system() == "Darwin" and shutil.which("brew"):
+        return "Install an isolated Python tool runner first, for example: brew install uv; then run: uv tool install bilibili-cli."
+    return "Install uv or pipx first, then run: uv tool install bilibili-cli or pipx install bilibili-cli."
+
+
+def pip_command(user: bool, upgrade: bool = False) -> list[str]:
     command = [sys.executable, "-m", "pip", "install", "-r", str(requirements_path())]
+    if upgrade:
+        command.insert(4, "--upgrade")
     if user:
         command.insert(4, "--user")
     return command
+
+
+def python_requirements_install_command(upgrade: bool = False, user: bool = False) -> list[str]:
+    return pip_command(user=user, upgrade=upgrade)
 
 
 def install_command_for_tool(tool: str, user: bool) -> list[str] | None:
@@ -72,6 +146,8 @@ def install_command_for_tool(tool: str, user: bool) -> list[str] | None:
         return pip_command(user)
     if tool == "gh":
         return detect_gh_install_command()
+    if tool == "bili":
+        return detect_bili_install_command()
     raise ValueError(f"Unknown tool: {tool}")
 
 
@@ -85,9 +161,20 @@ def run_command(command: list[str]) -> dict[str, Any]:
     }
 
 
+def tool_already_ready(tool: str, report: dict[str, Any]) -> bool:
+    if tool == "python":
+        return not bool(report["python_packages"]["missing"])
+    if tool == "gh":
+        return report["github_cli"]["status"] == "ok"
+    if tool == "bili":
+        return report["bilibili_cli"]["status"] == "ok"
+    return False
+
+
 def build_report(user: bool) -> dict[str, Any]:
     missing_python = missing_python_packages()
     gh = check_gh()
+    bili = check_bili()
     return {
         "operation": "install",
         "project_root": str(project_root()),
@@ -97,11 +184,21 @@ def build_report(user: bool) -> dict[str, Any]:
             "status": "ok" if not missing_python else "missing",
             "missing": missing_python,
             "install_command": pip_command(user),
+            "upgrade_command": python_requirements_install_command(upgrade=True, user=user),
         },
         "github_cli": {
             **gh,
             "install_command": detect_gh_install_command(),
+            "upgrade_command": detect_gh_upgrade_command(),
             "manual_install_url": "https://cli.github.com/",
+        },
+        "bilibili_cli": {
+            **bili,
+            "install_command": detect_bili_install_command(),
+            "upgrade_command": detect_bili_upgrade_command(),
+            "recommended_commands": recommended_bili_install_commands(),
+            "installer_hint": bili_installer_hint(),
+            "manual_install_url": "https://pypi.org/project/bilibili-cli/",
         },
     }
 
@@ -109,7 +206,7 @@ def build_report(user: bool) -> dict[str, Any]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check or prepare Auto Reach runtime environment.")
     parser.add_argument("--check", action="store_true", help="Only check environment status.")
-    parser.add_argument("--install", choices=["python", "gh", "all"], help="Install missing dependencies explicitly.")
+    parser.add_argument("--install", choices=["python", "gh", "bili", "all"], help="Install missing dependencies explicitly.")
     parser.add_argument("--dry-run", action="store_true", help="Show install commands without running them.")
     parser.add_argument("--user", action="store_true", help="Pass --user to pip install.")
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
@@ -120,20 +217,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     installs: list[dict[str, Any]] = []
 
     if args.install:
-        tools = ["python", "gh"] if args.install == "all" else [args.install]
+        tools = ["python", "gh", "bili"] if args.install == "all" else [args.install]
         for tool in tools:
             command = install_command_for_tool(tool, user=args.user)
             if command is None:
+                item: dict[str, Any] = {
+                    "tool": tool,
+                    "executed": False,
+                    "error": "No automatic install command detected for this platform. Install manually.",
+                }
+                if tool == "bili":
+                    item["recommended_commands"] = recommended_bili_install_commands()
+                    item["installer_hint"] = bili_installer_hint()
+                    item["manual_install_url"] = "https://pypi.org/project/bilibili-cli/"
                 installs.append(
-                    {
-                        "tool": tool,
-                        "executed": False,
-                        "error": "No automatic install command detected for this platform. Install manually.",
-                    }
+                    item
                 )
                 continue
             if args.dry_run:
                 installs.append({"tool": tool, "executed": False, "command": command})
+            elif tool_already_ready(tool, report):
+                installs.append({"tool": tool, "executed": False, "status": "ok", "detail": f"{tool} is already installed"})
             else:
                 installs.append({"tool": tool, "executed": True, **run_command(command)})
 
@@ -147,4 +251,5 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     has_missing_python = bool(report["python_packages"]["missing"])
     has_missing_gh = report["github_cli"]["status"] == "missing"
-    return 1 if has_missing_python or has_missing_gh else 0
+    has_missing_bili = report["bilibili_cli"]["status"] == "missing"
+    return 1 if has_missing_python or has_missing_gh or has_missing_bili else 0

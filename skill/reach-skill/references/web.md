@@ -13,11 +13,17 @@ auto-reach web extract "https://example.com/page" --format markdown --pretty
 
 Use `web auto` when the input may be either a URL or a query. Pass multiple URLs to `extract` when comparing sources. Use `--extract-depth advanced` only when basic extraction misses important content.
 
-If doctor reports `tavily_python` as missing, stop and ask the user to run:
+If doctor reports `tavily_python` as missing, inspect `doctor --json`:
 
 ```bash
-auto-reach install --install python
+auto-reach doctor --json
 ```
+
+Then use `agent_guidance.channels.web`.
+
+- If `status` is `setup_required` and `safe_to_execute_setup` is `true`, run `dry_run_command`, inspect that it only installs Auto Reach Python requirements, then run `execute_command`.
+- If `next_actions` mentions `TAVILY_API_KEY`, report it to the user; do not create or edit credentials automatically.
+- After successful setup, rerun `auto-reach doctor --json`, then retry the web command.
 
 ## Reading Order
 

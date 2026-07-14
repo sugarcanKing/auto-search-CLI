@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import json
-import os
 from typing import Any, Sequence
 from urllib.parse import urlparse
+
+from auto_reach.env import get_env
+
+from .base import clamp_timeout, emit_json, provider_error, provider_success
 
 
 MAX_SEARCH_TIMEOUT = 60.0
 MAX_EXTRACT_TIMEOUT = 45.0
-
-
-def clamp_timeout(value: float, maximum: float) -> float:
-    return max(1.0, min(value, maximum))
 
 
 def looks_like_url(value: str) -> bool:
@@ -28,7 +26,11 @@ def classify_error(exc: Exception) -> dict[str, Any]:
     category = "provider_error"
     retryable = False
 
-    if "timed out" in lowered or "timeout" in lowered:
+    if "tavily-python is not installed" in lowered:
+        category = "missing_dependency"
+    elif "tavily_api_key is not set" in lowered or "api key" in lowered:
+        category = "auth_required"
+    elif "timed out" in lowered or "timeout" in lowered:
         category = "timeout"
         retryable = True
     elif "failed to resolve" in lowered or "nameresolutionerror" in lowered or "dns" in lowered:
@@ -37,8 +39,8 @@ def classify_error(exc: Exception) -> dict[str, Any]:
     elif "connection" in lowered:
         category = "network_connection"
         retryable = True
-    elif "401" in lowered or "unauthorized" in lowered or "api key" in lowered:
-        category = "auth"
+    elif "401" in lowered or "unauthorized" in lowered:
+        category = "auth_required"
     elif "403" in lowered or "forbidden" in lowered or "quota" in lowered or "credit" in lowered:
         category = "quota_or_forbidden"
 
@@ -51,18 +53,20 @@ def classify_error(exc: Exception) -> dict[str, Any]:
 
 
 def emit(payload: dict[str, Any], pretty: bool) -> None:
-    indent = 2 if pretty else None
-    print(json.dumps(payload, ensure_ascii=False, indent=indent, sort_keys=pretty))
+    emit_json(payload, pretty)
 
 
 def load_client() -> Any:
+    api_key = get_env("TAVILY_API_KEY")
+    if not api_key:
+        raise RuntimeError("TAVILY_API_KEY is not set. Export it before using Tavily search or extraction.")
+
     try:
         from tavily import TavilyClient
     except ImportError as exc:
         raise RuntimeError("tavily-python is not installed. Run: auto-reach install --check") from exc
 
-    api_key = os.environ.get("TAVILY_API_KEY")
-    return TavilyClient(api_key=api_key) if api_key else TavilyClient()
+    return TavilyClient(api_key=api_key)
 
 
 def command_search(args: argparse.Namespace) -> dict[str, Any]:
@@ -93,13 +97,16 @@ def command_search(args: argparse.Namespace) -> dict[str, Any]:
         timeout=clamp_timeout(args.timeout, MAX_SEARCH_TIMEOUT),
         include_usage=args.include_usage,
     )
-    return {
-        "operation": "search",
-        "provider": "tavily",
-        "query": args.query,
-        "timeout_seconds": clamp_timeout(args.timeout, MAX_SEARCH_TIMEOUT),
-        "result": result,
-    }
+    return provider_success(
+        operation="search",
+        provider="tavily",
+        channel="web",
+        backend="tavily",
+        input=args.query,
+        query=args.query,
+        timeout_seconds=clamp_timeout(args.timeout, MAX_SEARCH_TIMEOUT),
+        result=result,
+    )
 
 
 def command_extract(args: argparse.Namespace) -> dict[str, Any]:
@@ -111,13 +118,16 @@ def command_extract(args: argparse.Namespace) -> dict[str, Any]:
         timeout=clamp_timeout(args.timeout, MAX_EXTRACT_TIMEOUT),
         include_usage=args.include_usage,
     )
-    return {
-        "operation": "extract",
-        "provider": "tavily",
-        "urls": args.urls,
-        "timeout_seconds": clamp_timeout(args.timeout, MAX_EXTRACT_TIMEOUT),
-        "result": result,
-    }
+    return provider_success(
+        operation="extract",
+        provider="tavily",
+        channel="web",
+        backend="tavily",
+        input=args.urls,
+        urls=args.urls,
+        timeout_seconds=clamp_timeout(args.timeout, MAX_EXTRACT_TIMEOUT),
+        result=result,
+    )
 
 
 def command_auto(args: argparse.Namespace) -> dict[str, Any]:
@@ -222,11 +232,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     except Exception as exc:
         emit(
-            {
-                "operation": getattr(args, "command", "unknown"),
-                "provider": "tavily",
-                "error": classify_error(exc),
-            },
+            provider_error(
+                operation=getattr(args, "command", "unknown"),
+                provider="tavily",
+                channel="web",
+                backend="tavily",
+                input=getattr(args, "query", getattr(args, "input", getattr(args, "urls", None))),
+                error=classify_error(exc),
+            ),
             bool(getattr(args, "pretty", False)),
         )
         return 1
