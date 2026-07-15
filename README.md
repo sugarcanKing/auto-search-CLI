@@ -4,8 +4,9 @@ Auto Reach is a lightweight capability layer for Agent research workflows. It pr
 
 - Tavily-backed web search
 - Tavily-backed URL extraction
-- `gh`-backed GitHub repository search and reading
+- `gh`-backed GitHub repository search and reading, with public REST API fallback
 - `bili-cli`-backed Bilibili search and reading, with Tavily search fallback
+- `xhs`-backed Xiaohongshu authentication and readonly reading
 - local dependency checks and explicit dependency installation
 
 The Skill is only the Agent-facing routing guide. The reusable runtime lives in `auto_reach/`.
@@ -43,9 +44,21 @@ auto-reach doctor
 auto-reach search "OpenAI Agents SDK documentation" --max-results 3 --pretty
 auto-reach github inspect tavily-ai/tavily-python --pretty
 auto-reach bilibili search "AI Agent 教程" --type video --max-results 5 --pretty
+auto-reach xiaohongshu search "美食" --sort popular --pretty
 ```
 
 Installation is explicit. Research commands do not silently install tools or dependencies.
+
+## Agent Default Policy
+
+This repository is meant to replace ad hoc Agent web browsing with the local Auto Reach capability layer. When an Agent is working in this repository, ordinary requests like "帮我搜索一下..." or "查一下..." should use Auto Reach by default:
+
+```bash
+python3 -m auto_reach doctor --json
+python3 -m auto_reach search "query" --pretty
+```
+
+Source-specific requests should use their channel directly, for example `xiaohongshu`, `bilibili`, or `github`. The root [AGENTS.md](AGENTS.md) file records this policy for Codex-style agents. Generic built-in web search should only be used when the user explicitly asks to bypass Auto Reach, or when the relevant Auto Reach channel is unavailable after checking `doctor --json` and setup guidance.
 
 ## Agent Setup Workflow
 
@@ -55,6 +68,7 @@ Use `setup` when the user explicitly asks to configure, install, repair, or upgr
 auto-reach setup web --dry-run --pretty
 auto-reach setup github --dry-run --pretty
 auto-reach setup bilibili --dry-run --pretty
+auto-reach setup xiaohongshu --dry-run --pretty
 auto-reach setup all --dry-run --pretty
 ```
 
@@ -114,6 +128,8 @@ auto-reach github view tavily-ai/tavily-python --pretty
 auto-reach github inspect tavily-ai/tavily-python --pretty
 ```
 
+`gh` is the primary GitHub backend and authentication is recommended for private repositories and higher rate limits. Public repository search and reading can fall back to GitHub's unauthenticated REST API through local `curl` with `--fallback auto` or `--fallback only`.
+
 On macOS with Homebrew, the detected `gh` install command is:
 
 ```bash
@@ -130,6 +146,19 @@ auto-reach bilibili video BV1xxxx --subtitle --comments --related --pretty
 ```
 
 Auto Reach treats `bili-cli` as an external backend. It is not added to this project's Python dependencies because current `bilibili-cli` releases require Python 3.10+ while Auto Reach supports Python 3.9+.
+
+6. Configure Xiaohongshu CLI for authenticated readonly reading.
+
+```bash
+auto-reach setup xiaohongshu --dry-run --pretty
+auto-reach setup xiaohongshu --yes --pretty
+auto-reach xiaohongshu login --method browser --pretty
+auto-reach xiaohongshu status --pretty
+auto-reach xiaohongshu search "美食" --sort popular --type all --pretty
+auto-reach xiaohongshu read "https://www.xiaohongshu.com/explore/..." --pretty
+```
+
+Auto Reach treats `xiaohongshu-cli` as an external backend. It is installed with `uv tool` or `pipx` so its Python 3.10+ requirement does not change Auto Reach's Python 3.9+ runtime support.
 
 ## Doctor Output
 
@@ -220,6 +249,39 @@ auto-reach bilibili status --pretty
 
 Do not use `yt-dlp` for Bilibili in this project. Auto Reach v1 also does not expose Bilibili write operations or audio download workflows.
 
+## Xiaohongshu
+
+Xiaohongshu v1 supports authentication and readonly reading through `xhs` from `xiaohongshu-cli`.
+
+```bash
+auto-reach xiaohongshu login --method browser --pretty
+auto-reach xiaohongshu login --method qrcode --pretty
+auto-reach xiaohongshu login --method qrcode --timeout 1800 --pretty
+auto-reach xiaohongshu status --pretty
+auto-reach xiaohongshu search "关键词" --sort general --type all --page 1 --pretty
+auto-reach xiaohongshu read "笔记ID或URL" --pretty
+auto-reach xiaohongshu comments "笔记ID或URL" --pretty
+auto-reach xiaohongshu user "user_id" --pretty
+auto-reach xiaohongshu user-posts "user_id" --pretty
+auto-reach xiaohongshu hot --category travel --pretty
+auto-reach xiaohongshu topics "旅行" --pretty
+auto-reach xiaohongshu search-user "用户名" --pretty
+```
+
+Explicit account-scoped reads require the user to ask for their own account data and require `--account`:
+
+```bash
+auto-reach xiaohongshu whoami --account --pretty
+auto-reach xiaohongshu feed --account --pretty
+auto-reach xiaohongshu unread --account --pretty
+auto-reach xiaohongshu notifications --account --type likes --pretty
+```
+
+Login uses local browser cookie extraction or QR-code authorization through upstream `xhs`. Ordinary reading commands use the saved `xhs` session only and do not expose `--cookie-source`. Auto Reach does not accept raw cookies in prompts, does not print cookie values, and does not expose Xiaohongshu write operations such as like, favorite, comment, follow, post, or delete.
+QR-code login streams the upstream QR code and prompts to stderr so the user can scan them, then emits the final Auto Reach JSON result on stdout after login completes. Browser-cookie login defaults to 180 seconds. QR-code login defaults to 900 seconds because the first run may download the Camoufox browser runtime before showing the QR code; pass `--timeout 1800` if that first download is slow.
+If QR-code login fails before showing a QR code with a GitHub API rate-limit error for `https://api.github.com/repos/daijro/camoufox/releases`, the failure is in upstream Camoufox runtime download. Wait for the GitHub API limit to reset, pre-warm the runtime locally, or use browser-cookie login after opening and logging into Xiaohongshu in a supported browser.
+Xiaohongshu payloads include a `sources` field when note IDs are present. Use those clickable `url` values in user-facing answers and keep raw note IDs for debugging or follow-up reads. Auto Reach redacts `xsec_token`, token, cookie, auth values, and URL userinfo from results, sources, and error JSON.
+
 ## Skill Installation Path
 
 The current project priority is:
@@ -236,10 +298,17 @@ There is intentionally no project-level `auto-reach install-skill` command yet. 
 - `TAVILY_API_KEY is not set`: export `TAVILY_API_KEY` or add it to the project `.env` before `search`, `web search`, or `web extract`.
 - `tavily-python is not installed`: run `auto-reach install --install python`, or `python -m pip install -r requirements.txt`.
 - `gh was not found on PATH`: run `auto-reach install --install gh --dry-run`, then install with the shown platform command.
-- `auth_required` from GitHub commands: run `gh auth login` or set `GH_TOKEN`. Public repository reads may still require authentication with the `gh repo` commands used by Auto Reach.
+- `auth_required` from GitHub commands: Auto Reach will try `github_public_api` for public repository data when fallback is enabled. Run `gh auth login` or set `GH_TOKEN` for private repositories, higher rate limits, or authenticated-only metadata.
+- `curl was not found on PATH`: GitHub public API fallback is unavailable until `curl` is installed; `gh` may still work if present.
+- GitHub public API rate limits: unauthenticated fallback is low quota. If public fallback is rate limited, wait or authenticate `gh`.
 - `bili was not found on PATH`: run `auto-reach install --install bili --dry-run`, then follow `install_command`, `recommended_commands`, or `installer_hint`. On macOS this usually means `brew install uv`, then `uv tool install bilibili-cli`.
+- `xhs was not found on PATH`: run `auto-reach setup xiaohongshu --dry-run --pretty`, then install with the planned `uv tool install xiaohongshu-cli` or `pipx install xiaohongshu-cli` command.
+- `auth_required` from Xiaohongshu commands: run `auto-reach xiaohongshu login --method browser --pretty` or `auto-reach xiaohongshu login --method qrcode --pretty`.
+- `account_confirmation_required` from Xiaohongshu commands: rerun only if the user explicitly asked for their own account data, and pass `--account`.
+- `ip_blocked` from Xiaohongshu commands: stop and wait for the user to resolve access conditions; do not retry aggressively.
+- `rate limit exceeded` from `api.github.com/repos/daijro/camoufox/releases` during Xiaohongshu QR login: upstream Camoufox runtime download hit GitHub API rate limits. Wait before retrying, pre-warm the runtime, or use browser-cookie login.
 - Bilibili search falls back to Tavily only when `TAVILY_API_KEY` is set.
-- Environment setup requested by the user: run `auto-reach setup <web|github|bilibili|all> --dry-run --pretty`, then use `--yes` when the user already authorized setup/installation or after approval. Use `--upgrade` only for explicit update requests.
+- Environment setup requested by the user: run `auto-reach setup <web|github|bilibili|xiaohongshu|all> --dry-run --pretty`, then use `--yes` when the user already authorized setup/installation or after approval. Use `--upgrade` only for explicit update requests.
 
 ## Testing
 

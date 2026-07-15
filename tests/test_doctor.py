@@ -40,15 +40,26 @@ class DoctorTests(unittest.TestCase):
 
         self.assertEqual(decoded["checks"]["python"]["category"], "required")
         self.assertEqual(decoded["checks"]["gh_auth"]["category"], "auth-only")
+        self.assertEqual(decoded["checks"]["xhs_auth"]["category"], "auth-only")
         self.assertEqual(decoded["checks"]["tavily_api_key"]["category"], "auth-only")
         self.assertEqual(decoded["checks"]["tavily_online"]["category"], "online-only")
         self.assertIn(decoded["capabilities"]["search"]["status"], {"ok", "warn", "missing"})
         self.assertIn("web", decoded["channels"])
         self.assertIn("github", decoded["channels"])
         self.assertIn("bilibili", decoded["channels"])
+        self.assertIn("xiaohongshu", decoded["channels"])
+        self.assertIn("github_public_api", decoded["channels"]["github"]["backends"])
         self.assertIn("bili-cli", decoded["channels"]["bilibili"]["backends"])
         self.assertIn("tavily_search_fallback", decoded["channels"]["bilibili"]["backends"])
+        self.assertIn("xhs-cli", decoded["channels"]["xiaohongshu"]["backends"])
+        xhs_capabilities = decoded["channels"]["xiaohongshu"]["capabilities"]
+        self.assertIn("account:notifications", xhs_capabilities)
+        self.assertNotIn("notifications", xhs_capabilities)
+        self.assertNotIn("feed", xhs_capabilities)
+        self.assertNotIn("whoami", xhs_capabilities)
+        self.assertNotIn("unread", xhs_capabilities)
         self.assertIn("web", decoded["agent_guidance"]["channels"])
+        self.assertIn("xiaohongshu", decoded["agent_guidance"]["channels"])
 
     def test_json_flag_emits_parseable_report(self) -> None:
         with mock.patch("sys.stdout", new_callable=StringIO) as stdout:
@@ -84,6 +95,7 @@ class DoctorTests(unittest.TestCase):
             ),
             "gh": doctor.Check(name="gh", status="ok", detail="gh exists"),
             "gh_auth": doctor.Check(name="gh_auth", status="ok", detail="gh is authenticated", category="auth-only"),
+            "xhs_auth": doctor.Check(name="xhs_auth", status="missing", detail="xhs missing", category="auth-only"),
         }
         channels = doctor.build_channels(checks)
 
@@ -94,6 +106,29 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(guidance["dry_run_command"][-3:], ["web", "--dry-run", "--pretty"])
         self.assertEqual(guidance["execute_command"][-3:], ["web", "--yes", "--pretty"])
 
+    def test_agent_guidance_recommends_safe_xiaohongshu_setup_when_xhs_missing(self) -> None:
+        checks = {
+            "tavily_python": doctor.Check(name="tavily_python", status="ok", detail="ok"),
+            "tavily_api_key": doctor.Check(name="tavily_api_key", status="ok", detail="set", category="auth-only"),
+            "gh": doctor.Check(name="gh", status="ok", detail="gh exists"),
+            "gh_auth": doctor.Check(name="gh_auth", status="ok", detail="gh is authenticated", category="auth-only"),
+            "xhs_auth": doctor.Check(name="xhs_auth", status="missing", detail="xhs missing", category="auth-only"),
+        }
+        with mock.patch.object(doctor, "probe_command") as probe:
+            def fake_probe(name: str, command: list[str], **kwargs: object) -> doctor.BackendReport:
+                if name == "xhs-cli":
+                    return doctor.BackendReport(name=name, status="missing", detail="xhs missing", capabilities=[])
+                return doctor.BackendReport(name=name, status="ok", detail="ok", capabilities=[])
+
+            probe.side_effect = fake_probe
+            channels = doctor.build_channels(checks)
+
+        guidance = doctor.build_agent_guidance(checks, channels)["channels"]["xiaohongshu"]
+
+        self.assertEqual(guidance["status"], "setup_required")
+        self.assertTrue(guidance["safe_to_execute_setup"])
+        self.assertEqual(guidance["dry_run_command"][-3:], ["xiaohongshu", "--dry-run", "--pretty"])
+
     def test_web_capability_does_not_advertise_missing_curl_fallback(self) -> None:
         checks = {
             "git": doctor.Check(name="git", status="ok", detail="git exists"),
@@ -101,12 +136,32 @@ class DoctorTests(unittest.TestCase):
             "gh_auth": doctor.Check(name="gh_auth", status="ok", detail="gh is authenticated", category="auth-only"),
             "tavily_python": doctor.Check(name="tavily_python", status="missing", detail="missing"),
             "tavily_api_key": doctor.Check(name="tavily_api_key", status="ok", detail="set", category="auth-only"),
+            "xhs_auth": doctor.Check(name="xhs_auth", status="missing", detail="xhs missing", category="auth-only"),
         }
 
         capabilities = doctor.capability_status(checks)
 
         self.assertEqual(capabilities["web"]["status"], "missing")
         self.assertNotIn("curl", capabilities["web"]["detail"].lower())
+
+    def test_github_public_api_backend_requires_curl(self) -> None:
+        checks = {
+            "git": doctor.Check(name="git", status="ok", detail="git exists"),
+            "gh": doctor.Check(name="gh", status="missing", detail="gh missing"),
+            "curl": doctor.Check(name="curl", status="missing", detail="curl missing"),
+            "gh_auth": doctor.Check(name="gh_auth", status="missing", detail="gh missing", category="auth-only"),
+            "tavily_python": doctor.Check(name="tavily_python", status="ok", detail="ok"),
+            "tavily_api_key": doctor.Check(name="tavily_api_key", status="ok", detail="set", category="auth-only"),
+            "xhs_auth": doctor.Check(name="xhs_auth", status="missing", detail="xhs missing", category="auth-only"),
+        }
+
+        channels = doctor.build_channels(checks)
+        capabilities = doctor.capability_status(checks, channels)
+
+        self.assertEqual(channels["github"]["backends"]["github_public_api"]["status"], "missing")
+        self.assertEqual(channels["github"]["status"], "missing")
+        self.assertEqual(capabilities["github"]["status"], "missing")
+        self.assertIn("curl", capabilities["github"]["detail"])
 
 
 if __name__ == "__main__":

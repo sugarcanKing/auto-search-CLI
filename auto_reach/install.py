@@ -71,6 +71,21 @@ def check_bili() -> dict[str, Any]:
     }
 
 
+def check_xhs() -> dict[str, Any]:
+    path = find_executable("xhs")
+    if not path:
+        return {"name": "xhs", "status": "missing", "detail": "xhs was not found on PATH or known tool directories", "path": None}
+
+    result = subprocess.run([path, "--version"], capture_output=True, text=True, check=False)
+    version = (result.stdout or result.stderr).strip().splitlines()
+    return {
+        "name": "xhs",
+        "status": "ok" if result.returncode == 0 else "warn",
+        "detail": version[0] if version else "xhs exists",
+        "path": path,
+    }
+
+
 def detect_gh_install_command() -> list[str] | None:
     if platform.system() == "Darwin" and shutil.which("brew"):
         return ["brew", "install", "gh"]
@@ -99,6 +114,22 @@ def detect_bili_upgrade_command() -> list[str] | None:
     return None
 
 
+def detect_xhs_install_command() -> list[str] | None:
+    if shutil.which("uv"):
+        return ["uv", "tool", "install", "xiaohongshu-cli"]
+    if shutil.which("pipx"):
+        return ["pipx", "install", "xiaohongshu-cli"]
+    return None
+
+
+def detect_xhs_upgrade_command() -> list[str] | None:
+    if shutil.which("uv"):
+        return ["uv", "tool", "upgrade", "xiaohongshu-cli"]
+    if shutil.which("pipx"):
+        return ["pipx", "upgrade", "xiaohongshu-cli"]
+    return None
+
+
 def recommended_bili_install_commands() -> list[list[str]]:
     commands: list[list[str]] = []
     if platform.system() == "Darwin" and shutil.which("brew"):
@@ -120,12 +151,41 @@ def recommended_bili_install_commands() -> list[list[str]]:
     return commands
 
 
+def recommended_xhs_install_commands() -> list[list[str]]:
+    commands: list[list[str]] = []
+    if platform.system() == "Darwin" and shutil.which("brew"):
+        commands.extend(
+            [
+                ["brew", "install", "uv"],
+                ["uv", "tool", "install", "xiaohongshu-cli"],
+                ["brew", "install", "pipx"],
+                ["pipx", "install", "xiaohongshu-cli"],
+            ]
+        )
+    else:
+        commands.extend(
+            [
+                ["uv", "tool", "install", "xiaohongshu-cli"],
+                ["pipx", "install", "xiaohongshu-cli"],
+            ]
+        )
+    return commands
+
+
 def bili_installer_hint() -> str:
     if detect_bili_install_command() is not None:
         return "Run install_command to install bilibili-cli."
     if platform.system() == "Darwin" and shutil.which("brew"):
         return "Install an isolated Python tool runner first, for example: brew install uv; then run: uv tool install bilibili-cli."
     return "Install uv or pipx first, then run: uv tool install bilibili-cli or pipx install bilibili-cli."
+
+
+def xhs_installer_hint() -> str:
+    if detect_xhs_install_command() is not None:
+        return "Run install_command to install xiaohongshu-cli."
+    if platform.system() == "Darwin" and shutil.which("brew"):
+        return "Install an isolated Python tool runner first, for example: brew install uv; then run: uv tool install xiaohongshu-cli."
+    return "Install uv or pipx first, then run: uv tool install xiaohongshu-cli or pipx install xiaohongshu-cli."
 
 
 def pip_command(user: bool, upgrade: bool = False) -> list[str]:
@@ -148,6 +208,8 @@ def install_command_for_tool(tool: str, user: bool) -> list[str] | None:
         return detect_gh_install_command()
     if tool == "bili":
         return detect_bili_install_command()
+    if tool == "xhs":
+        return detect_xhs_install_command()
     raise ValueError(f"Unknown tool: {tool}")
 
 
@@ -168,6 +230,8 @@ def tool_already_ready(tool: str, report: dict[str, Any]) -> bool:
         return report["github_cli"]["status"] == "ok"
     if tool == "bili":
         return report["bilibili_cli"]["status"] == "ok"
+    if tool == "xhs":
+        return report["xiaohongshu_cli"]["status"] == "ok"
     return False
 
 
@@ -175,6 +239,7 @@ def build_report(user: bool) -> dict[str, Any]:
     missing_python = missing_python_packages()
     gh = check_gh()
     bili = check_bili()
+    xhs = check_xhs()
     return {
         "operation": "install",
         "project_root": str(project_root()),
@@ -200,13 +265,21 @@ def build_report(user: bool) -> dict[str, Any]:
             "installer_hint": bili_installer_hint(),
             "manual_install_url": "https://pypi.org/project/bilibili-cli/",
         },
+        "xiaohongshu_cli": {
+            **xhs,
+            "install_command": detect_xhs_install_command(),
+            "upgrade_command": detect_xhs_upgrade_command(),
+            "recommended_commands": recommended_xhs_install_commands(),
+            "installer_hint": xhs_installer_hint(),
+            "manual_install_url": "https://pypi.org/project/xiaohongshu-cli/",
+        },
     }
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check or prepare Auto Reach runtime environment.")
     parser.add_argument("--check", action="store_true", help="Only check environment status.")
-    parser.add_argument("--install", choices=["python", "gh", "bili", "all"], help="Install missing dependencies explicitly.")
+    parser.add_argument("--install", choices=["python", "gh", "bili", "xhs", "all"], help="Install missing dependencies explicitly.")
     parser.add_argument("--dry-run", action="store_true", help="Show install commands without running them.")
     parser.add_argument("--user", action="store_true", help="Pass --user to pip install.")
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
@@ -217,7 +290,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     installs: list[dict[str, Any]] = []
 
     if args.install:
-        tools = ["python", "gh", "bili"] if args.install == "all" else [args.install]
+        tools = ["python", "gh", "bili", "xhs"] if args.install == "all" else [args.install]
         for tool in tools:
             command = install_command_for_tool(tool, user=args.user)
             if command is None:
@@ -230,6 +303,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     item["recommended_commands"] = recommended_bili_install_commands()
                     item["installer_hint"] = bili_installer_hint()
                     item["manual_install_url"] = "https://pypi.org/project/bilibili-cli/"
+                if tool == "xhs":
+                    item["recommended_commands"] = recommended_xhs_install_commands()
+                    item["installer_hint"] = xhs_installer_hint()
+                    item["manual_install_url"] = "https://pypi.org/project/xiaohongshu-cli/"
                 installs.append(
                     item
                 )
@@ -252,4 +329,5 @@ def main(argv: Sequence[str] | None = None) -> int:
     has_missing_python = bool(report["python_packages"]["missing"])
     has_missing_gh = report["github_cli"]["status"] == "missing"
     has_missing_bili = report["bilibili_cli"]["status"] == "missing"
-    return 1 if has_missing_python or has_missing_gh or has_missing_bili else 0
+    has_missing_xhs = report["xiaohongshu_cli"]["status"] == "missing"
+    return 1 if has_missing_python or has_missing_gh or has_missing_bili or has_missing_xhs else 0

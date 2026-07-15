@@ -22,6 +22,9 @@ class CliTests(unittest.TestCase):
         parsed = parser.parse_args(["bilibili"])
         self.assertEqual(parsed.command, "bilibili")
 
+        parsed = parser.parse_args(["xiaohongshu"])
+        self.assertEqual(parsed.command, "xiaohongshu")
+
     def test_main_routes_shortcuts(self) -> None:
         with mock.patch.object(cli.web_provider, "main", return_value=0) as web_main:
             self.assertEqual(cli.main(["search", "agent frameworks"]), 0)
@@ -57,6 +60,18 @@ class CliTests(unittest.TestCase):
             self.assertEqual(cli.route_auto(["https://www.bilibili.com/video/BV1abcDEF234"]), 0)
 
         bilibili_main.assert_called_once_with(["auto", "https://www.bilibili.com/video/BV1abcDEF234"])
+
+    def test_main_routes_xiaohongshu_command(self) -> None:
+        with mock.patch.object(cli.xiaohongshu_provider, "main", return_value=0) as xhs_main:
+            self.assertEqual(cli.main(["xiaohongshu", "search", "美食"]), 0)
+
+        xhs_main.assert_called_once_with(["search", "美食"])
+
+    def test_auto_routes_xiaohongshu_urls_to_xiaohongshu_provider(self) -> None:
+        with mock.patch.object(cli.xiaohongshu_provider, "main", return_value=0) as xhs_main:
+            self.assertEqual(cli.route_auto(["https://www.xiaohongshu.com/explore/abc"]), 0)
+
+        xhs_main.assert_called_once_with(["auto", "https://www.xiaohongshu.com/explore/abc"])
 
 
 if __name__ == "__main__":

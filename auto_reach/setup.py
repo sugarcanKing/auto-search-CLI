@@ -14,7 +14,7 @@ from . import install
 from .env import get_env
 
 
-TARGETS = ("web", "github", "bilibili", "all")
+TARGETS = ("web", "github", "bilibili", "xiaohongshu", "all")
 
 
 def emit(payload: dict[str, Any], pretty: bool) -> None:
@@ -220,6 +220,77 @@ def bilibili_steps(upgrade: bool) -> tuple[list[dict[str, Any]], list[str]]:
     return steps, []
 
 
+def xiaohongshu_steps(upgrade: bool) -> tuple[list[dict[str, Any]], list[str]]:
+    steps: list[dict[str, Any]] = []
+    report = install.check_xhs()
+    if report["status"] == "missing":
+        command = install.detect_xhs_install_command()
+        if command:
+            steps.append(
+                setup_step(
+                    name="install_xiaohongshu_cli",
+                    target="xiaohongshu",
+                    command=command,
+                    required=True,
+                    detail="Install xiaohongshu-cli as an isolated Python tool.",
+                )
+            )
+        elif platform.system() == "Darwin" and shutil.which("brew"):
+            steps.extend(
+                [
+                    setup_step(
+                        name="install_uv",
+                        target="xiaohongshu",
+                        command=["brew", "install", "uv"],
+                        required=True,
+                        detail="Install uv as an isolated Python tool runner.",
+                    ),
+                    setup_step(
+                        name="install_xiaohongshu_cli",
+                        target="xiaohongshu",
+                        command=["uv", "tool", "install", "xiaohongshu-cli"],
+                        required=True,
+                        detail="Install xiaohongshu-cli with uv.",
+                    ),
+                ]
+            )
+        else:
+            steps.append(
+                setup_step(
+                    name="install_xiaohongshu_cli",
+                    target="xiaohongshu",
+                    command=None,
+                    required=True,
+                    status="manual",
+                    detail=install.xhs_installer_hint(),
+                )
+            )
+    elif upgrade:
+        command = install.detect_xhs_upgrade_command()
+        steps.append(
+            setup_step(
+                name="upgrade_xiaohongshu_cli",
+                target="xiaohongshu",
+                command=command,
+                required=False,
+                status="planned" if command else "manual",
+                detail="Upgrade xiaohongshu-cli.",
+            )
+        )
+    else:
+        steps.append(
+            setup_step(
+                name="xiaohongshu_cli_ready",
+                target="xiaohongshu",
+                command=None,
+                required=False,
+                status="skipped",
+                detail="xhs is already installed.",
+            )
+        )
+    return steps, ["Run auto-reach xiaohongshu login --method browser or --method qrcode before authenticated reading."]
+
+
 def build_target_steps(target: str, upgrade: bool, user: bool) -> tuple[list[dict[str, Any]], list[str]]:
     if target == "web":
         return web_steps(upgrade=upgrade, user=user)
@@ -227,10 +298,12 @@ def build_target_steps(target: str, upgrade: bool, user: bool) -> tuple[list[dic
         return github_steps(upgrade=upgrade)
     if target == "bilibili":
         return bilibili_steps(upgrade=upgrade)
+    if target == "xiaohongshu":
+        return xiaohongshu_steps(upgrade=upgrade)
     if target == "all":
         steps: list[dict[str, Any]] = []
         next_actions: list[str] = []
-        for child in ("web", "github", "bilibili"):
+        for child in ("web", "github", "bilibili", "xiaohongshu"):
             child_steps, child_actions = build_target_steps(child, upgrade=upgrade, user=user)
             steps.extend(child_steps)
             next_actions.extend(child_actions)

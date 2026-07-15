@@ -20,7 +20,7 @@ class SetupTests(unittest.TestCase):
 
     def test_parser_accepts_targets_and_flags(self) -> None:
         parser = setup.build_parser()
-        for target in ("web", "github", "bilibili", "all"):
+        for target in ("web", "github", "bilibili", "xiaohongshu", "all"):
             parsed = parser.parse_args([target, "--dry-run", "--upgrade", "--pretty"])
             self.assertEqual(parsed.target, target)
             self.assertTrue(parsed.dry_run)
@@ -118,6 +118,37 @@ class SetupTests(unittest.TestCase):
 
         self.assertEqual(report["steps"][0]["command"], ["uv", "tool", "upgrade", "bilibili-cli"])
 
+    def test_xiaohongshu_missing_with_uv_plans_uv_install(self) -> None:
+        with mock.patch.object(setup.doctor, "build_report", return_value={"project": "auto-reach"}):
+            with mock.patch.object(setup.install, "check_xhs", return_value={"status": "missing"}):
+                with mock.patch.object(setup.install, "detect_xhs_install_command", return_value=["uv", "tool", "install", "xiaohongshu-cli"]):
+                    report = setup.build_setup_report("xiaohongshu", execute=False, upgrade=False, user=False)
+
+        self.assertEqual(report["steps"][0]["command"], ["uv", "tool", "install", "xiaohongshu-cli"])
+        self.assertIn("auto-reach xiaohongshu login", report["next_actions"][0])
+
+    def test_xiaohongshu_missing_without_uv_plans_brew_then_uv(self) -> None:
+        def fake_which(command: str) -> str | None:
+            return "/opt/homebrew/bin/brew" if command == "brew" else None
+
+        with mock.patch.object(setup.doctor, "build_report", return_value={"project": "auto-reach"}):
+            with mock.patch.object(setup.install, "check_xhs", return_value={"status": "missing"}):
+                with mock.patch.object(setup.install, "detect_xhs_install_command", return_value=None):
+                    with mock.patch.object(setup.platform, "system", return_value="Darwin"):
+                        with mock.patch.object(setup.shutil, "which", side_effect=fake_which):
+                            report = setup.build_setup_report("xiaohongshu", execute=False, upgrade=False, user=False)
+
+        self.assertEqual(report["steps"][0]["command"], ["brew", "install", "uv"])
+        self.assertEqual(report["steps"][1]["command"], ["uv", "tool", "install", "xiaohongshu-cli"])
+
+    def test_xiaohongshu_upgrade_plans_tool_upgrade(self) -> None:
+        with mock.patch.object(setup.doctor, "build_report", return_value={"project": "auto-reach"}):
+            with mock.patch.object(setup.install, "check_xhs", return_value={"status": "ok"}):
+                with mock.patch.object(setup.install, "detect_xhs_upgrade_command", return_value=["uv", "tool", "upgrade", "xiaohongshu-cli"]):
+                    report = setup.build_setup_report("xiaohongshu", execute=False, upgrade=True, user=False)
+
+        self.assertEqual(report["steps"][0]["command"], ["uv", "tool", "upgrade", "xiaohongshu-cli"])
+
     def test_yes_executes_planned_steps_and_builds_after_report(self) -> None:
         completed = subprocess.CompletedProcess(args=["cmd"], returncode=0, stdout="ok", stderr="")
         with mock.patch.object(setup.doctor, "build_report", side_effect=[{"before": True}, {"after": True}]):
@@ -136,9 +167,12 @@ class SetupTests(unittest.TestCase):
             report = setup.build_setup_report("all", execute=False, upgrade=True, user=False)
 
         rendered = repr(report)
+        rendered_commands = repr([step["command"] for step in report["steps"]])
         self.assertNotIn("gh auth login',", rendered)
         self.assertNotIn("TAVILY_API_KEY=", rendered)
         self.assertNotIn("yt-dlp", rendered)
+        self.assertNotIn("xhs login", rendered_commands)
+        self.assertNotIn("cookie", rendered_commands.lower())
 
 
 if __name__ == "__main__":

@@ -23,6 +23,8 @@ auto-reach install --install gh
 
 If automatic installation is unavailable, install GitHub CLI from `https://cli.github.com/`, then run `gh auth login` if authenticated access is needed.
 
+GitHub uses `gh` as the primary backend. Public repository search and reading can fall back to GitHub's unauthenticated REST API through `github_public_api` and local `curl` when `gh` is missing, unauthenticated, or fails. This fallback only covers public repositories and is subject to GitHub's low unauthenticated rate limits.
+
 ## Auto Routing
 
 Use `auto` when the input may be a GitHub URL, `OWNER/REPO`, or search terms:
@@ -51,11 +53,14 @@ Use `inspect OWNER/REPO` for the first pass; it combines metadata, root listing,
 4. Use `--include-forks true` only when forks matter.
 5. Avoid archived repositories unless requested.
 
+Use `--fallback auto` by default. Use `--fallback only` to force the public REST API when testing unauthenticated behavior, and `--fallback never` when the user specifically wants `gh` semantics or authenticated/private access.
+
 ## Safety And Failures
 
 - Do not create issues, stars, forks, pull requests, comments, releases, or other mutations.
 - Do not run untrusted repository code unless the user explicitly asks and accepts the risk.
 - `not_found_or_private`: nonexistent repo, private repo, or insufficient token access. Do not retry repeatedly.
-- `auth_required`: ask the user to authenticate `gh` or provide a public source.
-- `forbidden_or_rate_limited`: stop GitHub CLI calls and use web/search fallback only if public data is enough.
-- Missing `gh`: prefer setup first; use public GitHub pages or raw URLs only as an explicit fallback.
+- `auth_required`: Auto Reach should try `github_public_api` for public repository data. Ask the user to authenticate `gh` only when private access, higher rate limits, or authenticated-only fields are needed.
+- `forbidden_or_rate_limited`: stop repeated GitHub calls. If the public API fallback is also rate limited, wait or authenticate `gh`.
+- Missing `gh`: setup is still recommended, but public repository search/read can use `--fallback only` through `github_public_api`.
+- Missing `curl`: public API fallback is unavailable; use `gh` if present or install curl before relying on fallback.

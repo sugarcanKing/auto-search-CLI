@@ -13,6 +13,7 @@ from . import setup as setup_module
 from .providers import bilibili as bilibili_provider
 from .providers import github as github_provider
 from .providers import web as web_provider
+from .providers import xiaohongshu as xiaohongshu_provider
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("web", help="Run Tavily-backed web search/extraction commands.")
     subparsers.add_parser("github", help="Run gh-backed GitHub search/reading commands.")
     subparsers.add_parser("bilibili", help="Run bili-cli-backed Bilibili search/reading commands.")
+    subparsers.add_parser("xiaohongshu", help="Run xhs-backed Xiaohongshu auth/reading commands.")
     subparsers.add_parser("search", help="Shortcut for: auto-reach web search.")
     subparsers.add_parser("extract", help="Shortcut for: auto-reach web extract.")
     subparsers.add_parser("auto", help="Route GitHub URLs to GitHub, other URLs/text to web.")
@@ -44,6 +46,8 @@ def route_auto(argv: list[str]) -> int:
         return github_provider.main(["auto", *argv])
     if bilibili_provider.looks_like_bilibili_video_input(candidate):
         return bilibili_provider.main(["auto", *argv])
+    if xiaohongshu_provider.looks_like_xiaohongshu_input(candidate):
+        return xiaohongshu_provider.main(["auto", *argv])
     return web_provider.main(["auto", *argv])
 
 
@@ -74,6 +78,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return github_provider.main(remainder or ["--help"])
     if command == "bilibili":
         return bilibili_provider.main(remainder or ["--help"])
+    if command == "xiaohongshu":
+        return xiaohongshu_provider.main(remainder or ["--help"])
     if command == "search":
         return web_provider.main(["search", *remainder])
     if command == "extract":

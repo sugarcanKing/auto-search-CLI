@@ -136,6 +136,46 @@ def check_github_online(enabled: bool, gh_check: Check) -> Check:
     return Check(name="github_online", status="warn", detail=first_line, category="online-only")
 
 
+def check_xhs_auth(xhs_backend: BackendReport) -> Check:
+    if xhs_backend.status == "missing":
+        return Check(
+            name="xhs_auth",
+            status="missing",
+            detail="xhs is missing; Xiaohongshu auth checks are unavailable",
+            category="auth-only",
+        )
+    if xhs_backend.status != "ok" or not xhs_backend.path:
+        return Check(
+            name="xhs_auth",
+            status="warn",
+            detail="xhs is not healthy enough to check authentication",
+            category="auth-only",
+        )
+
+    result = run_command([xhs_backend.path, "status", "--json"], timeout=20)
+    if result is None:
+        return Check(name="xhs_auth", status="warn", detail="xhs status did not complete", category="auth-only")
+
+    output = (result.stdout or result.stderr).strip()
+    try:
+        payload = json.loads(output) if output else {}
+    except json.JSONDecodeError:
+        first_line = output.splitlines()[0] if output else "xhs status returned non-JSON output"
+        return Check(name="xhs_auth", status="warn", detail=first_line, category="auth-only")
+
+    if result.returncode == 0 and payload.get("ok") is True:
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        user = data.get("user") if isinstance(data.get("user"), dict) else {}
+        nickname = user.get("nickname") or user.get("name") or "authenticated user"
+        return Check(name="xhs_auth", status="ok", detail=f"xhs is authenticated as {nickname}", category="auth-only")
+
+    error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+    code = error.get("code") if isinstance(error, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    detail = str(message or code or "xhs is not authenticated")
+    return Check(name="xhs_auth", status="warn", detail=f"{detail}; run auto-reach xiaohongshu login when Xiaohongshu access is required", category="auth-only")
+
+
 def build_channels(checks: dict[str, Check]) -> dict[str, dict[str, object]]:
     tavily_ready = checks["tavily_python"].status == "ok" and checks["tavily_api_key"].status == "ok"
     if tavily_ready:
@@ -163,7 +203,25 @@ def build_channels(checks: dict[str, Check]) -> dict[str, dict[str, object]]:
         path=checks["gh"].path,
         capabilities=["search", "view", "read-dir", "read-file", "inspect", "auto"],
     )
-    github_status, github_active = channel_status(gh_backend)
+    curl_check = checks.get(
+        "curl",
+        Check(
+            name="curl",
+            status="missing",
+            detail="curl is required for GitHub public API fallback",
+        ),
+    )
+    github_public_ready = curl_check.status == "ok"
+    github_public_backend = BackendReport(
+        name="github_public_api",
+        status="ok" if github_public_ready else "missing",
+        detail="Public GitHub REST API fallback is available for public repositories with unauthenticated rate limits"
+        if github_public_ready
+        else "curl is required for GitHub public API fallback",
+        path=curl_check.path,
+        capabilities=["search_fallback", "view_fallback", "read-dir_fallback", "read-file_fallback"],
+    )
+    github_status, github_active = channel_status(gh_backend, github_public_backend)
 
     bili_backend = probe_command(
         "bili-cli",
@@ -180,6 +238,31 @@ def build_channels(checks: dict[str, Check]) -> dict[str, dict[str, object]]:
     )
     bilibili_status, bilibili_active = channel_status(bili_backend, tavily_fallback)
 
+    xhs_backend = probe_command(
+        "xhs-cli",
+        ["xhs", "--version"],
+        capabilities=[
+            "login",
+            "status",
+            "logout",
+            "search",
+            "read",
+            "comments",
+            "sub-comments",
+            "user",
+            "user-posts",
+            "hot",
+            "topics",
+            "search-user",
+            "account:whoami",
+            "account:feed",
+            "account:unread",
+            "account:notifications",
+            "auto",
+        ],
+    )
+    xiaohongshu_status, xiaohongshu_active = channel_status(xhs_backend)
+
     return {
         "web": ChannelReport(
             name="web",
@@ -192,7 +275,7 @@ def build_channels(checks: dict[str, Check]) -> dict[str, dict[str, object]]:
             name="github",
             status=github_status,
             active_backend=github_active,
-            backends={"gh": gh_backend},
+            backends={"gh": gh_backend, "github_public_api": github_public_backend},
             capabilities=["search", "view", "read-dir", "read-file", "inspect", "auto"],
         ).to_dict(),
         "bilibili": ChannelReport(
@@ -201,6 +284,31 @@ def build_channels(checks: dict[str, Check]) -> dict[str, dict[str, object]]:
             active_backend=bilibili_active,
             backends={"bili-cli": bili_backend, "tavily_search_fallback": tavily_fallback},
             capabilities=["search", "video", "hot", "rank", "user", "user-videos", "status"],
+        ).to_dict(),
+        "xiaohongshu": ChannelReport(
+            name="xiaohongshu",
+            status=xiaohongshu_status,
+            active_backend=xiaohongshu_active,
+            backends={"xhs-cli": xhs_backend},
+            capabilities=[
+                "login",
+                "status",
+                "logout",
+                "search",
+                "read",
+                "comments",
+                "sub-comments",
+                "user",
+                "user-posts",
+                "hot",
+                "topics",
+                "search-user",
+                "account:whoami",
+                "account:feed",
+                "account:unread",
+                "account:notifications",
+                "auto",
+            ],
         ).to_dict(),
     }
 
@@ -215,7 +323,23 @@ def capability_status(checks: dict[str, Check], channels: dict[str, dict[str, ob
     tavily_ready = tavily.status == "ok" and tavily_key.status == "ok"
     search_status = "ok" if tavily_ready else "missing"
     web_status = "ok" if tavily_ready else "missing"
-    github_status = "ok" if gh.status == "ok" else ("warn" if git.status == "ok" else "missing")
+    if channels:
+        github_channel = channels["github"]
+        github_status = str(github_channel["status"])
+        github_active_backend = github_channel.get("active_backend")
+        if github_active_backend == "gh":
+            github_detail = "Use auto-reach github backed by gh."
+        elif github_active_backend == "github_public_api":
+            github_detail = "Use auto-reach github backed by github_public_api for public repositories; authenticate gh for private or higher-limit access."
+        else:
+            github_detail = "GitHub access is unavailable; install gh or ensure curl is available for public API fallback."
+    else:
+        github_status = "ok" if gh.status == "ok" else ("warn" if git.status == "ok" else "missing")
+        github_detail = (
+            "Use auto-reach github backed by gh."
+            if gh.status == "ok"
+            else "gh is required for first-class GitHub search and reading; run auto-reach install --check."
+        )
 
     capabilities = {
         "search": {
@@ -236,9 +360,7 @@ def capability_status(checks: dict[str, Check], channels: dict[str, dict[str, ob
         },
         "github": {
             "status": github_status,
-            "detail": "Use auto-reach github backed by gh."
-            if gh.status == "ok"
-            else "gh is required for first-class GitHub search and reading; run auto-reach install --check.",
+            "detail": github_detail,
         },
         "github_auth": {
             "status": gh_auth.status,
@@ -251,6 +373,12 @@ def capability_status(checks: dict[str, Check], channels: dict[str, dict[str, ob
         capabilities["bilibili"] = {
             "status": str(bilibili["status"]),
             "detail": f"Use auto-reach bilibili backed by {active_backend}.",
+        }
+        xiaohongshu = channels["xiaohongshu"]
+        xiaohongshu_active_backend = xiaohongshu.get("active_backend") or "none"
+        capabilities["xiaohongshu"] = {
+            "status": str(xiaohongshu["status"]),
+            "detail": f"Use auto-reach xiaohongshu backed by {xiaohongshu_active_backend}.",
         }
     return capabilities
 
@@ -292,6 +420,19 @@ def channel_setup_guidance(name: str, checks: dict[str, Check], channels: dict[s
         elif bili_backend["status"] != "ok":
             manual_required = True
             reason = f"bili-cli probe status is {bili_backend['status']}; inspect the backend error before setup."
+    elif name == "xiaohongshu":
+        backends = channel["backends"]  # type: ignore[index]
+        xhs_backend = backends["xhs-cli"]  # type: ignore[index]
+        if xhs_backend["status"] == "missing":
+            installable = True
+            reason = "xhs is missing; setup xiaohongshu can install xiaohongshu-cli when uv or pipx is available."
+        elif xhs_backend["status"] != "ok":
+            manual_required = True
+            reason = f"xhs probe status is {xhs_backend['status']}; inspect the backend error before setup."
+        elif checks.get("xhs_auth") and checks["xhs_auth"].status != "ok":
+            manual_required = True
+            reason = "xhs is installed but Xiaohongshu authentication is not ready."
+            next_actions.append("Run auto-reach xiaohongshu login --method browser or --method qrcode when Xiaohongshu access is required.")
 
     if str(channel["status"]) == "ok" and not installable and not manual_required:
         status = "ready"
@@ -327,7 +468,7 @@ def build_agent_guidance(checks: dict[str, Check], channels: dict[str, dict[str,
         ],
         "channels": {
             name: channel_setup_guidance(name, checks, channels)
-            for name in ("web", "github", "bilibili")
+            for name in ("web", "github", "bilibili", "xiaohongshu")
         },
     }
 
@@ -345,6 +486,8 @@ def build_report(online: bool = False) -> dict[str, object]:
     checks["tavily_online"] = check_tavily_online(online, checks["tavily_python"], checks["tavily_api_key"])
     checks["github_online"] = check_github_online(online, checks["gh"])
     channels = build_channels(checks)
+    xhs_backend_payload = channels["xiaohongshu"]["backends"]["xhs-cli"]  # type: ignore[index]
+    checks["xhs_auth"] = check_xhs_auth(BackendReport(**xhs_backend_payload))  # type: ignore[arg-type]
 
     return {
         "project": "auto-reach",
