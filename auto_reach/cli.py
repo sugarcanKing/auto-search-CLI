@@ -7,6 +7,7 @@ import sys
 from collections.abc import Sequence
 
 from . import __version__
+from . import agent as agent_module
 from . import doctor as doctor_module
 from . import install as install_module
 from . import setup as setup_module
@@ -27,6 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("doctor", help="Check local tools, Python packages, and provider readiness.")
     subparsers.add_parser("install", help="Check or explicitly install local dependencies.")
     subparsers.add_parser("setup", help="Plan or execute explicit Auto Reach environment setup.")
+    subparsers.add_parser("agent", help="Install or inspect Agent workspace policy files.")
     subparsers.add_parser("web", help="Run Tavily-backed web search/extraction commands.")
     subparsers.add_parser("github", help="Run gh-backed GitHub search/reading commands.")
     subparsers.add_parser("bilibili", help="Run bili-cli-backed Bilibili search/reading commands.")
@@ -74,6 +76,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return install_module.main(remainder)
     if command == "setup":
         return setup_module.main(remainder or ["--help"])
+    if command == "agent":
+        return agent_module.main(remainder or ["--help"])
     if command == "web":
         return web_provider.main(remainder or ["--help"])
     if command == "github":

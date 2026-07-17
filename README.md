@@ -55,6 +55,49 @@ auto-reach xiaohongshu search "美食" --sort popular --pretty
 
 Installation is explicit. Research commands do not silently install tools or dependencies.
 
+## Product Modes
+
+Auto Reach supports three product modes:
+
+1. **Develop in this repository.** Install editable runtime dependencies with `python -m pip install -e .`, then use `python -m auto_reach ...` or `auto-reach ...` while changing providers, doctor checks, setup logic, and tests.
+2. **Install into any Agent workspace.** Use `auto-reach agent install` from a target project so Codex, Cursor, or Claude Code receives workspace policy that tells the Agent to prefer Auto Reach for search and retrieval.
+3. **Future MCP tool surface.** The planned MCP mode should expose Auto Reach operations as tools such as `auto_reach.search`, `auto_reach.read`, and `auto_reach.research`. The current production path is still CLI plus Agent policy files.
+
+## Install Into Agent Workspaces
+
+`auto-reach agent install` installs usage policy only. It writes Agent instruction files and never installs Python packages, npm packages, API keys, browser state, cookies, or account credentials.
+
+```bash
+auto-reach agent install --target codex
+auto-reach agent install --target cursor
+auto-reach agent install --target claude
+auto-reach agent install --target all
+```
+
+By default, policy is installed into the current directory. Use `--target-dir` to install into another project, and `--dry-run` to inspect planned file changes before writing:
+
+```bash
+auto-reach agent install --target all --target-dir /path/to/project --dry-run --pretty
+auto-reach agent install --target codex --target-dir /path/to/project --pretty
+auto-reach agent status --target all --target-dir /path/to/project --pretty
+```
+
+Target files:
+
+- Codex: `AGENTS.md`
+- Cursor: `.cursor/rules/auto-reach.mdc`
+- Claude Code: `CLAUDE.md`
+
+The installer uses a managed marker block:
+
+```md
+<!-- AUTO-REACH:START -->
+...
+<!-- AUTO-REACH:END -->
+```
+
+If the target file does not exist, it is created. If the file exists without an Auto Reach block, the block is appended and existing content is preserved. If the block already exists, only that block is replaced. `--force` overwrites unmarked target policy files and should be used only when the file is known to be generated or disposable.
+
 ## Agent Default Policy
 
 This repository is meant to replace ad hoc Agent web browsing with the local Auto Reach capability layer. When an Agent is working in this repository, ordinary requests like "帮我搜索一下..." or "查一下..." should use Auto Reach by default:
@@ -321,10 +364,11 @@ Xiaohongshu payloads include a `sources` field when note IDs are present. Use th
 The current project priority is:
 
 1. Develop and test the runtime with `pip install -e .`.
-2. Keep `skill/reach-skill/` as the Agent-facing routing guide in this repository.
-3. Install or package the Skill into Codex only after runtime behavior is stable.
+2. Install workspace policy with `auto-reach agent install --target codex|cursor|claude|all`.
+3. Keep `skill/reach-skill/` as the richer Agent-facing routing guide in this repository.
+4. Install or package the Skill into Codex only after runtime behavior is stable.
 
-There is intentionally no project-level `auto-reach install-skill` command yet. Adding that command later is reasonable once the target Codex Skills directory, overwrite behavior, and marketplace metadata policy are settled.
+There is intentionally no project-level `auto-reach install-skill` command yet. Adding that command later is reasonable once the target Codex Skills directory, overwrite behavior, and marketplace metadata policy are settled. Workspace policy installation is already available through `auto-reach agent install`.
 
 ## Common Errors
 

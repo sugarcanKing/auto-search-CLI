@@ -19,6 +19,9 @@ class CliTests(unittest.TestCase):
         parsed = parser.parse_args(["setup"])
         self.assertEqual(parsed.command, "setup")
 
+        parsed = parser.parse_args(["agent"])
+        self.assertEqual(parsed.command, "agent")
+
         parsed = parser.parse_args(["bilibili"])
         self.assertEqual(parsed.command, "bilibili")
 
