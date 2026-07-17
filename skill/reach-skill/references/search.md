@@ -7,11 +7,19 @@ Use this reference for broad research, comparison, discovery, or current informa
 ```bash
 auto-reach doctor
 auto-reach install --check
-auto-reach search "query" --max-results 5 --search-depth basic --pretty
+auto-reach search "query" --backend auto --max-results 5 --search-depth basic --pretty
+auto-reach research "query" --max-sources 5 --pretty
 auto-reach web auto "query or URL" --pretty
 ```
 
-Use `web auto` when the input may be a URL. It routes direct HTTP URLs to extraction. Use `--search-depth advanced` only when the first result set is weak or the task needs broader discovery. Use `--include-raw-content markdown` only for small tasks; otherwise search first, choose URLs, then extract.
+Use `web auto` when the input may be a URL. It routes direct HTTP URLs to page reading. Use `research` when the user needs a sourced answer from multiple pages: Auto Reach searches, reads candidate URLs, and returns a source bundle.
+
+Search backend order with `--backend auto`:
+
+1. Exa MCP through `mcporter`, when configured.
+2. Tavily search fallback, when `TAVILY_API_KEY` is available.
+
+Use `--backend exa` or `--backend tavily` only when testing or when the user explicitly asks for a backend. Use `--search-depth advanced` only when the first result set is weak or the task needs broader discovery. Use `--include-raw-content markdown` only for small Tavily-only tasks; otherwise use `research`.
 
 If doctor reports `tavily_python` as missing, inspect `doctor --json`:
 
@@ -21,9 +29,21 @@ auto-reach doctor --json
 
 Then use `agent_guidance.channels.web`.
 
-- If `status` is `setup_required` and `safe_to_execute_setup` is `true`, run `dry_run_command`, inspect that it only installs Auto Reach Python requirements, then run `execute_command`.
+- If `status` is `setup_required` and `safe_to_execute_setup` is `true`, run `dry_run_command`, inspect that it only installs expected Auto Reach search dependencies such as Python requirements or `mcporter`, then run `execute_command`.
+- If `status` is `setup_recommended`, the channel has a working fallback. Continue the user's task first, and mention the setup option only when search quality is limited.
 - If `next_actions` mentions `TAVILY_API_KEY`, report it to the user; do not create or edit credentials automatically.
 - After successful setup, rerun `auto-reach doctor --json`, then retry `auto-reach search`.
+
+## Exa MCP
+
+Exa search is reached through `mcporter`:
+
+```bash
+mcporter config add exa https://mcp.exa.ai/mcp
+mcporter call 'exa.web_search_exa(query: "query", numResults: 5)'
+```
+
+Auto Reach checks for this route with `doctor --json`. The public MCP endpoint currently does not require a user-provided API key, but treat it as an external backend that may change. Do not invent or store Exa credentials.
 
 ## Query Design
 

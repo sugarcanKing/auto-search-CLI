@@ -25,11 +25,27 @@ class CliTests(unittest.TestCase):
         parsed = parser.parse_args(["xiaohongshu"])
         self.assertEqual(parsed.command, "xiaohongshu")
 
+        parsed = parser.parse_args(["research"])
+        self.assertEqual(parsed.command, "research")
+
     def test_main_routes_shortcuts(self) -> None:
         with mock.patch.object(cli.web_provider, "main", return_value=0) as web_main:
             self.assertEqual(cli.main(["search", "agent frameworks"]), 0)
 
         web_main.assert_called_once_with(["search", "agent frameworks"])
+
+    def test_main_routes_read_and_research_shortcuts(self) -> None:
+        with mock.patch.object(cli.web_provider, "main", return_value=0) as web_main:
+            self.assertEqual(cli.main(["read", "https://example.com"]), 0)
+            self.assertEqual(cli.main(["research", "agent frameworks"]), 0)
+
+        self.assertEqual(
+            web_main.call_args_list,
+            [
+                mock.call(["read", "https://example.com"]),
+                mock.call(["research", "agent frameworks"]),
+            ],
+        )
 
     def test_auto_routes_github_inputs_to_github_provider(self) -> None:
         with mock.patch.object(cli.github_provider, "main", return_value=0) as github_main:

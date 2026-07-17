@@ -102,9 +102,56 @@ def web_steps(upgrade: bool, user: bool) -> tuple[list[dict[str, Any]], list[str
                 detail="Python requirements are already installed.",
             )
         )
+    mcporter = install.check_mcporter()
+    exa_mcp = install.check_exa_mcp()
+    if mcporter["status"] == "missing":
+        command = install.detect_mcporter_install_command()
+        steps.append(
+            setup_step(
+                name="install_mcporter",
+                target="web",
+                command=command,
+                required=False,
+                status="planned" if command else "manual",
+                detail="Install mcporter so Auto Reach can use Exa MCP search.",
+            )
+        )
+        steps.append(
+            setup_step(
+                name="configure_exa_mcp",
+                target="web",
+                command=install.exa_config_command(),
+                required=False,
+                detail="Register the public Exa MCP endpoint in mcporter.",
+            )
+        )
+    elif upgrade:
+        command = install.detect_mcporter_upgrade_command()
+        steps.append(
+            setup_step(
+                name="upgrade_mcporter",
+                target="web",
+                command=command,
+                required=False,
+                status="planned" if command else "manual",
+                detail="Upgrade mcporter.",
+            )
+        )
+    if mcporter["status"] != "missing" and exa_mcp["status"] != "ok":
+        steps.append(
+            setup_step(
+                name="configure_exa_mcp",
+                target="web",
+                command=install.exa_config_command(),
+                required=False,
+                detail="Register the public Exa MCP endpoint in mcporter.",
+            )
+        )
     next_actions: list[str] = []
     if not get_env("TAVILY_API_KEY"):
-        next_actions.append("Set TAVILY_API_KEY before using Tavily-backed search or extraction.")
+        next_actions.append("Set TAVILY_API_KEY to enable Tavily search and extraction fallback.")
+    if mcporter["status"] == "missing" and install.detect_mcporter_install_command() is None:
+        next_actions.append("Install Node.js/npm, then run npm install -g mcporter and mcporter config add exa https://mcp.exa.ai/mcp.")
     return steps, next_actions
 
 

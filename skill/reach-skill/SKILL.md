@@ -40,9 +40,9 @@ When the user's current request already clearly authorizes setup, installation, 
 
 | User intent | Primary command | Reference |
 | --- | --- | --- |
-| Broad web research or current information | `auto-reach search "query"` | `references/search.md` |
-| User gives a non-GitHub URL | `auto-reach web auto "URL"` | `references/web.md` |
-| Read or summarize selected URLs | `auto-reach web extract "URL"` | `references/web.md` |
+| Broad web research or current information | `auto-reach search "query"` or `auto-reach research "query"` | `references/search.md` |
+| User gives a non-GitHub URL | `auto-reach web auto "URL"` or `auto-reach read "URL"` | `references/web.md` |
+| Read or summarize selected URLs | `auto-reach web read "URL"` | `references/web.md` |
 | User gives a GitHub URL or `OWNER/REPO` | `auto-reach github auto "input"` | `references/github.md` |
 | Search GitHub repositories | `auto-reach github search "query"` | `references/github.md` |
 | Inspect a public GitHub repository | `auto-reach github inspect OWNER/REPO` | `references/github.md` |
@@ -58,9 +58,11 @@ Read the matching reference file before running the task command.
 1. Classify the input as web query, web URL, GitHub URL, `OWNER/REPO`, GitHub search, Bilibili URL, BV ID, Bilibili search, Xiaohongshu URL, or Xiaohongshu search/read request.
 2. Run `auto-reach doctor` once before local retrieval.
 3. Use one primary route from the table. Broad search uses `auto-reach search`; Xiaohongshu-specific tasks must use the Xiaohongshu route, not generic web search.
-4. Prefer primary sources: official docs, source repos, standards, release notes, vendor pages.
-5. Report wrapper errors directly when dependencies, auth, network, private access, or timeouts block the route.
-6. Separate sourced facts from inference in the final answer.
+4. For URL reading, prefer `web read`: it uses Jina Reader first and Tavily extraction as fallback.
+5. For multi-source research, prefer `auto-reach research`: it searches, reads candidate pages, and returns a source bundle.
+6. Prefer primary sources: official docs, source repos, standards, release notes, vendor pages.
+7. Report wrapper errors directly when dependencies, auth, network, private access, or timeouts block the route.
+8. Separate sourced facts from inference in the final answer.
 
 ## Safety Boundaries
 

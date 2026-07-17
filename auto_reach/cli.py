@@ -33,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("xiaohongshu", help="Run xhs-backed Xiaohongshu auth/reading commands.")
     subparsers.add_parser("search", help="Shortcut for: auto-reach web search.")
     subparsers.add_parser("extract", help="Shortcut for: auto-reach web extract.")
+    subparsers.add_parser("read", help="Shortcut for: auto-reach web read.")
+    subparsers.add_parser("research", help="Shortcut for: auto-reach web research.")
     subparsers.add_parser("auto", help="Route GitHub URLs to GitHub, other URLs/text to web.")
     return parser
 
@@ -84,6 +86,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return web_provider.main(["search", *remainder])
     if command == "extract":
         return web_provider.main(["extract", *remainder])
+    if command == "read":
+        return web_provider.main(["read", *remainder])
+    if command == "research":
+        return web_provider.main(["research", *remainder])
     if command == "auto":
         return route_auto(remainder)
 

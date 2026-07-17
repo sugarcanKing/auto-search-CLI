@@ -45,10 +45,16 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(decoded["checks"]["tavily_online"]["category"], "online-only")
         self.assertIn(decoded["capabilities"]["search"]["status"], {"ok", "warn", "missing"})
         self.assertIn("web", decoded["channels"])
+        self.assertIn("web_read", decoded["channels"])
+        self.assertIn("web_search", decoded["channels"])
         self.assertIn("github", decoded["channels"])
         self.assertIn("bilibili", decoded["channels"])
         self.assertIn("xiaohongshu", decoded["channels"])
         self.assertIn("github_public_api", decoded["channels"]["github"]["backends"])
+        self.assertIn("jina_reader", decoded["channels"]["web_read"]["backends"])
+        self.assertIn("direct_http", decoded["channels"]["web_read"]["backends"])
+        self.assertIn("exa_mcp", decoded["channels"]["web_search"]["backends"])
+        self.assertIn("tavily", decoded["channels"]["web_search"]["backends"])
         self.assertIn("bili-cli", decoded["channels"]["bilibili"]["backends"])
         self.assertIn("tavily_search_fallback", decoded["channels"]["bilibili"]["backends"])
         self.assertIn("xhs-cli", decoded["channels"]["xiaohongshu"]["backends"])
@@ -59,6 +65,8 @@ class DoctorTests(unittest.TestCase):
         self.assertNotIn("whoami", xhs_capabilities)
         self.assertNotIn("unread", xhs_capabilities)
         self.assertIn("web", decoded["agent_guidance"]["channels"])
+        self.assertIn("web_read", decoded["agent_guidance"]["channels"])
+        self.assertIn("web_search", decoded["agent_guidance"]["channels"])
         self.assertIn("xiaohongshu", decoded["agent_guidance"]["channels"])
 
     def test_json_flag_emits_parseable_report(self) -> None:
@@ -93,13 +101,15 @@ class DoctorTests(unittest.TestCase):
                 detail="TAVILY_API_KEY is set",
                 category="auth-only",
             ),
+            "mcporter": doctor.Check(name="mcporter", status="missing", detail="mcporter missing"),
+            "exa_mcp": doctor.Check(name="exa_mcp", status="missing", detail="exa missing"),
             "gh": doctor.Check(name="gh", status="ok", detail="gh exists"),
             "gh_auth": doctor.Check(name="gh_auth", status="ok", detail="gh is authenticated", category="auth-only"),
             "xhs_auth": doctor.Check(name="xhs_auth", status="missing", detail="xhs missing", category="auth-only"),
         }
         channels = doctor.build_channels(checks)
 
-        guidance = doctor.build_agent_guidance(checks, channels)["channels"]["web"]
+        guidance = doctor.build_agent_guidance(checks, channels)["channels"]["web_search"]
 
         self.assertEqual(guidance["status"], "setup_required")
         self.assertTrue(guidance["safe_to_execute_setup"])
@@ -110,6 +120,8 @@ class DoctorTests(unittest.TestCase):
         checks = {
             "tavily_python": doctor.Check(name="tavily_python", status="ok", detail="ok"),
             "tavily_api_key": doctor.Check(name="tavily_api_key", status="ok", detail="set", category="auth-only"),
+            "mcporter": doctor.Check(name="mcporter", status="ok", detail="mcporter exists"),
+            "exa_mcp": doctor.Check(name="exa_mcp", status="ok", detail="exa configured"),
             "gh": doctor.Check(name="gh", status="ok", detail="gh exists"),
             "gh_auth": doctor.Check(name="gh_auth", status="ok", detail="gh is authenticated", category="auth-only"),
             "xhs_auth": doctor.Check(name="xhs_auth", status="missing", detail="xhs missing", category="auth-only"),
@@ -129,19 +141,24 @@ class DoctorTests(unittest.TestCase):
         self.assertTrue(guidance["safe_to_execute_setup"])
         self.assertEqual(guidance["dry_run_command"][-3:], ["xiaohongshu", "--dry-run", "--pretty"])
 
-    def test_web_capability_does_not_advertise_missing_curl_fallback(self) -> None:
+    def test_web_read_remains_available_without_tavily(self) -> None:
         checks = {
             "git": doctor.Check(name="git", status="ok", detail="git exists"),
             "gh": doctor.Check(name="gh", status="ok", detail="gh exists"),
             "gh_auth": doctor.Check(name="gh_auth", status="ok", detail="gh is authenticated", category="auth-only"),
             "tavily_python": doctor.Check(name="tavily_python", status="missing", detail="missing"),
             "tavily_api_key": doctor.Check(name="tavily_api_key", status="ok", detail="set", category="auth-only"),
+            "mcporter": doctor.Check(name="mcporter", status="missing", detail="mcporter missing"),
+            "exa_mcp": doctor.Check(name="exa_mcp", status="missing", detail="exa missing"),
             "xhs_auth": doctor.Check(name="xhs_auth", status="missing", detail="xhs missing", category="auth-only"),
         }
 
-        capabilities = doctor.capability_status(checks)
+        channels = doctor.build_channels(checks)
+        capabilities = doctor.capability_status(checks, channels)
 
-        self.assertEqual(capabilities["web"]["status"], "missing")
+        self.assertEqual(channels["web_read"]["status"], "ok")
+        self.assertEqual(channels["web_read"]["active_backend"], "jina_reader")
+        self.assertEqual(capabilities["web"]["status"], "warn")
         self.assertNotIn("curl", capabilities["web"]["detail"].lower())
 
     def test_github_public_api_backend_requires_curl(self) -> None:
@@ -152,6 +169,8 @@ class DoctorTests(unittest.TestCase):
             "gh_auth": doctor.Check(name="gh_auth", status="missing", detail="gh missing", category="auth-only"),
             "tavily_python": doctor.Check(name="tavily_python", status="ok", detail="ok"),
             "tavily_api_key": doctor.Check(name="tavily_api_key", status="ok", detail="set", category="auth-only"),
+            "mcporter": doctor.Check(name="mcporter", status="missing", detail="mcporter missing"),
+            "exa_mcp": doctor.Check(name="exa_mcp", status="missing", detail="exa missing"),
             "xhs_auth": doctor.Check(name="xhs_auth", status="missing", detail="xhs missing", category="auth-only"),
         }
 

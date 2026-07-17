@@ -2,8 +2,10 @@
 
 Auto Reach is a lightweight capability layer for Agent research workflows. It provides one local CLI for:
 
-- Tavily-backed web search
-- Tavily-backed URL extraction
+- Exa MCP-backed web search through `mcporter`, with Tavily fallback
+- Jina Reader-backed public URL reading, with direct HTTP and Tavily extraction fallback
+- Tavily-backed web search and URL extraction
+- search-and-read source bundles for Agent research
 - `gh`-backed GitHub repository search and reading, with public REST API fallback
 - `bili-cli`-backed Bilibili search and reading, with Tavily search fallback
 - `xhs`-backed Xiaohongshu authentication and readonly reading
@@ -33,7 +35,9 @@ This enables the `auto-reach` console command without copying anything into the 
 ```bash
 python -m auto_reach doctor
 python -m auto_reach install --check
+python -m auto_reach web read "https://example.com" --pretty
 python -m auto_reach web search "OpenAI Agents SDK documentation" --max-results 3 --pretty
+python -m auto_reach research "OpenAI Agents SDK documentation" --max-sources 3 --pretty
 python -m auto_reach github auto https://github.com/tavily-ai/tavily-python --pretty
 ```
 
@@ -42,6 +46,8 @@ After installing the package in editable mode, the same commands are available a
 ```bash
 auto-reach doctor
 auto-reach search "OpenAI Agents SDK documentation" --max-results 3 --pretty
+auto-reach read "https://example.com" --pretty
+auto-reach research "OpenAI Agents SDK documentation" --max-sources 3 --pretty
 auto-reach github inspect tavily-ai/tavily-python --pretty
 auto-reach bilibili search "AI Agent 教程" --type video --max-results 5 --pretty
 auto-reach xiaohongshu search "美食" --sort popular --pretty
@@ -56,6 +62,8 @@ This repository is meant to replace ad hoc Agent web browsing with the local Aut
 ```bash
 python3 -m auto_reach doctor --json
 python3 -m auto_reach search "query" --pretty
+python3 -m auto_reach read "URL" --pretty
+python3 -m auto_reach research "query" --max-sources 5 --pretty
 ```
 
 Source-specific requests should use their channel directly, for example `xiaohongshu`, `bilibili`, or `github`. The root [AGENTS.md](AGENTS.md) file records this policy for Codex-style agents. Generic built-in web search should only be used when the user explicitly asks to bypass Auto Reach, or when the relevant Auto Reach channel is unavailable after checking `doctor --json` and setup guidance.
@@ -105,7 +113,25 @@ auto-reach doctor
 auto-reach install --check
 ```
 
-3. Configure Tavily for web search and extraction.
+3. Configure web reading and search.
+
+URL reading works without an API key through Jina Reader:
+
+```bash
+auto-reach read "https://example.com" --pretty
+```
+
+For stronger search, configure Exa MCP through `mcporter`:
+
+```bash
+npm install -g mcporter
+mcporter config add exa https://mcp.exa.ai/mcp
+auto-reach search "OpenAI Agents SDK documentation" --max-results 3 --pretty
+```
+
+Exa MCP currently uses the public MCP endpoint and does not require an Auto Reach-managed API key. Auto Reach still treats this as a backend that must be checked by `doctor`, because provider policy can change.
+
+4. Configure Tavily for search and extraction fallback.
 
 ```bash
 export TAVILY_API_KEY="tvly-..."
@@ -118,7 +144,7 @@ Auto Reach also reads `TAVILY_API_KEY` from the project-root `.env` file, withou
 TAVILY_API_KEY="tvly-..."
 ```
 
-4. Configure GitHub CLI for repository reading.
+5. Configure GitHub CLI for repository reading.
 
 ```bash
 auto-reach install --install gh --dry-run
@@ -136,7 +162,7 @@ On macOS with Homebrew, the detected `gh` install command is:
 brew install gh
 ```
 
-5. Configure Bilibili CLI for Bilibili reading.
+6. Configure Bilibili CLI for Bilibili reading.
 
 ```bash
 auto-reach install --install bili --dry-run
@@ -147,7 +173,7 @@ auto-reach bilibili video BV1xxxx --subtitle --comments --related --pretty
 
 Auto Reach treats `bili-cli` as an external backend. It is not added to this project's Python dependencies because current `bilibili-cli` releases require Python 3.10+ while Auto Reach supports Python 3.9+.
 
-6. Configure Xiaohongshu CLI for authenticated readonly reading.
+7. Configure Xiaohongshu CLI for authenticated readonly reading.
 
 ```bash
 auto-reach setup xiaohongshu --dry-run --pretty
@@ -229,6 +255,14 @@ Existing provider-specific fields such as `query`, `repo`, `path`, `urls`, and `
 ```
 
 `auto-reach doctor --json` also includes `channels`. Each channel reports `status`, `active_backend`, `backends`, and supported `capabilities`.
+
+Web capabilities are split by behavior:
+
+- `web_read`: URL reading. Primary backend is `jina_reader`; `direct_http` is the zero-config fallback; Tavily extraction is fallback when configured.
+- `web_search`: broad web search. Primary backend is `exa_mcp` when `mcporter` has Exa configured; Tavily is fallback when configured.
+- `web`: aggregate channel for read, search, extract, and research.
+
+Use `auto-reach research "query"` when an Agent needs a source bundle: Auto Reach searches, reads candidate URLs, records failures, and returns source content in one JSON result.
 
 ## Bilibili
 

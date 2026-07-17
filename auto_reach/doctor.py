@@ -11,6 +11,7 @@ import sys
 from dataclasses import asdict, dataclass
 from typing import Any, Sequence
 
+from . import install
 from .channels import BackendReport, ChannelReport, channel_status, probe_command
 from .env import get_env
 
@@ -119,6 +120,26 @@ def check_tavily_online(enabled: bool, tavily_check: Check, key_check: Check) ->
     return Check(name="tavily_online", status="warn", detail=first_line, category="online-only")
 
 
+def check_mcporter() -> Check:
+    report = install.check_mcporter()
+    return Check(
+        name="mcporter",
+        status=str(report["status"]),
+        detail=str(report["detail"]),
+        path=report.get("path"),
+    )
+
+
+def check_exa_mcp() -> Check:
+    report = install.check_exa_mcp()
+    return Check(
+        name="exa_mcp",
+        status=str(report["status"]),
+        detail=str(report["detail"]),
+        path=report.get("path"),
+    )
+
+
 def check_github_online(enabled: bool, gh_check: Check) -> Check:
     if not enabled:
         return Check(name="github_online", status="skipped", detail="Use --online to run a live GitHub CLI check", category="online-only")
@@ -194,7 +215,50 @@ def build_channels(checks: dict[str, Check]) -> dict[str, dict[str, object]]:
         else tavily_missing_detail,
         capabilities=["search", "extract"],
     )
-    web_status, web_active = channel_status(tavily_backend)
+    jina_backend = BackendReport(
+        name="jina_reader",
+        status="ok",
+        detail="Jina Reader can read public URLs without local credentials",
+        capabilities=["read"],
+    )
+    direct_http_backend = BackendReport(
+        name="direct_http",
+        status="ok" if checks.get("curl", Check(name="curl", status="missing", detail="curl missing")).status == "ok" else "missing",
+        detail="curl can directly read public URLs as a lightweight fallback"
+        if checks.get("curl", Check(name="curl", status="missing", detail="curl missing")).status == "ok"
+        else "curl is required for direct HTTP URL reading",
+        path=checks.get("curl", Check(name="curl", status="missing", detail="curl missing")).path,
+        capabilities=["read_fallback"],
+    )
+    tavily_extract_backend = BackendReport(
+        name="tavily_extract",
+        status="ok" if tavily_ready else "missing",
+        detail="Tavily extraction is ready" if tavily_ready else tavily_missing_detail,
+        capabilities=["read_fallback", "extract"],
+    )
+    web_read_status, web_read_active = channel_status(jina_backend, direct_http_backend, tavily_extract_backend)
+
+    exa_backend = BackendReport(
+        name="exa_mcp",
+        status=checks.get("exa_mcp", Check(name="exa_mcp", status="missing", detail="Exa MCP is not configured")).status,
+        detail=checks.get("exa_mcp", Check(name="exa_mcp", status="missing", detail="Exa MCP is not configured")).detail,
+        path=checks.get("exa_mcp", Check(name="exa_mcp", status="missing", detail="Exa MCP is not configured")).path,
+        capabilities=["search"],
+    )
+    tavily_search_backend = BackendReport(
+        name="tavily",
+        status="ok" if tavily_ready else "missing",
+        detail="Tavily search is ready" if tavily_ready else tavily_missing_detail,
+        capabilities=["search_fallback"],
+    )
+    web_search_status, web_search_active = channel_status(exa_backend, tavily_search_backend)
+
+    if web_read_status == "ok" and web_search_status == "ok":
+        web_status, web_active = "ok", "web_read+web_search"
+    elif web_read_status in {"ok", "warn"} or web_search_status in {"ok", "warn"}:
+        web_status, web_active = "warn", "partial"
+    else:
+        web_status, web_active = "missing", None
 
     gh_backend = BackendReport(
         name="gh",
@@ -268,8 +332,27 @@ def build_channels(checks: dict[str, Check]) -> dict[str, dict[str, object]]:
             name="web",
             status=web_status,
             active_backend=web_active,
-            backends={"tavily": tavily_backend},
-            capabilities=["search", "extract"],
+            backends={
+                "jina_reader": jina_backend,
+                "direct_http": direct_http_backend,
+                "exa_mcp": exa_backend,
+                "tavily": tavily_backend,
+            },
+            capabilities=["read", "search", "extract", "research"],
+        ).to_dict(),
+        "web_read": ChannelReport(
+            name="web_read",
+            status=web_read_status,
+            active_backend=web_read_active,
+            backends={"jina_reader": jina_backend, "direct_http": direct_http_backend, "tavily_extract": tavily_extract_backend},
+            capabilities=["read", "extract"],
+        ).to_dict(),
+        "web_search": ChannelReport(
+            name="web_search",
+            status=web_search_status,
+            active_backend=web_search_active,
+            backends={"exa_mcp": exa_backend, "tavily": tavily_search_backend},
+            capabilities=["search"],
         ).to_dict(),
         "github": ChannelReport(
             name="github",
@@ -322,7 +405,26 @@ def capability_status(checks: dict[str, Check], channels: dict[str, dict[str, ob
 
     tavily_ready = tavily.status == "ok" and tavily_key.status == "ok"
     search_status = "ok" if tavily_ready else "missing"
-    web_status = "ok" if tavily_ready else "missing"
+    web_status = "ok"
+    search_detail = (
+        "Use auto-reach search or auto-reach web search."
+        if tavily_ready
+        else (
+            "TAVILY_API_KEY is required for Tavily search."
+            if tavily.status == "ok"
+            else "Tavily is missing; run auto-reach install --install python."
+        )
+    )
+    web_detail = "Use auto-reach web read for URL reading and auto-reach web search for search."
+    if channels:
+        web_search = channels["web_search"]
+        web_read = channels["web_read"]
+        search_status = str(web_search["status"])
+        search_active = web_search.get("active_backend") or "none"
+        read_active = web_read.get("active_backend") or "none"
+        search_detail = f"Use auto-reach web search backed by {search_active}."
+        web_status = str(channels["web"]["status"])
+        web_detail = f"Use auto-reach web read backed by {read_active}; search backed by {search_active}."
     if channels:
         github_channel = channels["github"]
         github_status = str(github_channel["status"])
@@ -344,19 +446,11 @@ def capability_status(checks: dict[str, Check], channels: dict[str, dict[str, ob
     capabilities = {
         "search": {
             "status": search_status,
-            "detail": "Use auto-reach search or auto-reach web search."
-            if tavily_ready
-            else (
-                "TAVILY_API_KEY is required for Tavily search."
-                if tavily.status == "ok"
-                else "Tavily is missing; run auto-reach install --install python."
-            ),
+            "detail": search_detail,
         },
         "web": {
             "status": web_status,
-            "detail": "Use auto-reach web extract for URL extraction."
-            if tavily_ready
-            else "No local web extraction provider is ready; Tavily is required.",
+            "detail": web_detail,
         },
         "github": {
             "status": github_status,
@@ -398,12 +492,34 @@ def channel_setup_guidance(name: str, checks: dict[str, Check], channels: dict[s
     if name == "web":
         if checks["tavily_python"].status != "ok":
             installable = True
-            reason = "tavily-python is missing; setup web can install Python requirements."
+            reason = "tavily-python is missing; setup web can install Python requirements for Tavily fallback."
+        if checks.get("mcporter") and checks["mcporter"].status == "missing":
+            installable = True
+            reason = "mcporter is missing; setup web can install it for Exa search when npm is available."
+        elif checks.get("exa_mcp") and checks["exa_mcp"].status != "ok":
+            installable = True
+            reason = "Exa MCP is not configured; setup web can register the Exa MCP endpoint with mcporter."
         if checks["tavily_api_key"].status != "ok":
             manual_required = True
             next_actions.append("Set TAVILY_API_KEY in the environment or project .env.")
-            if not installable:
-                reason = "TAVILY_API_KEY is missing; setup cannot create credentials."
+            if not installable and str(channels.get("web_search", {}).get("status")) != "ok":
+                reason = "TAVILY_API_KEY is missing and no search fallback is ready; setup cannot create credentials."
+    elif name in {"web_read", "web_search"}:
+        parent = channel_setup_guidance("web", checks, channels)
+        guidance = {**parent, "channel": name}
+        if name == "web_read" and str(channels[name]["status"]) == "ok":
+            guidance.update(
+                {
+                    "status": "ready",
+                    "reason": "web_read is ready through Jina Reader.",
+                    "safe_to_execute_setup": False,
+                    "dry_run_command": None,
+                    "execute_command": None,
+                }
+            )
+        elif name == "web_search" and str(channels[name]["status"]) == "missing" and guidance["status"] == "setup_recommended":
+            guidance["status"] = "setup_required"
+        return guidance
     elif name == "github":
         if checks["gh"].status == "missing":
             installable = True
@@ -437,7 +553,8 @@ def channel_setup_guidance(name: str, checks: dict[str, Check], channels: dict[s
     if str(channel["status"]) == "ok" and not installable and not manual_required:
         status = "ready"
     elif installable:
-        status = "setup_required"
+        has_active_backend = bool(channel.get("active_backend"))
+        status = "setup_recommended" if str(channel["status"]) in {"ok", "warn"} and has_active_backend else "setup_required"
     elif manual_required:
         status = "manual_action_required"
     else:
@@ -468,7 +585,7 @@ def build_agent_guidance(checks: dict[str, Check], channels: dict[str, dict[str,
         ],
         "channels": {
             name: channel_setup_guidance(name, checks, channels)
-            for name in ("web", "github", "bilibili", "xiaohongshu")
+            for name in ("web", "web_read", "web_search", "github", "bilibili", "xiaohongshu")
         },
     }
 
@@ -482,6 +599,8 @@ def build_report(online: bool = False) -> dict[str, object]:
         "tavily_python": check_python_package("tavily", "tavily_python"),
         "tavily_api_key": check_tavily_key(),
     }
+    checks["mcporter"] = check_mcporter()
+    checks["exa_mcp"] = check_exa_mcp()
     checks["gh_auth"] = check_gh_auth(checks["gh"])
     checks["tavily_online"] = check_tavily_online(online, checks["tavily_python"], checks["tavily_api_key"])
     checks["github_online"] = check_github_online(online, checks["gh"])

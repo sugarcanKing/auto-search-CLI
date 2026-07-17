@@ -86,6 +86,52 @@ def check_xhs() -> dict[str, Any]:
     }
 
 
+def check_mcporter() -> dict[str, Any]:
+    path = shutil.which("mcporter")
+    if not path:
+        return {"name": "mcporter", "status": "missing", "detail": "mcporter was not found on PATH", "path": None}
+
+    result = subprocess.run([path, "--version"], capture_output=True, text=True, check=False)
+    version = (result.stdout or result.stderr).strip().splitlines()
+    return {
+        "name": "mcporter",
+        "status": "ok" if result.returncode == 0 else "warn",
+        "detail": version[0] if version else "mcporter exists",
+        "path": path,
+    }
+
+
+def check_exa_mcp() -> dict[str, Any]:
+    mcporter = shutil.which("mcporter")
+    if not mcporter:
+        return {
+            "name": "exa_mcp",
+            "status": "missing",
+            "detail": "mcporter is required before Exa MCP can be checked",
+            "path": None,
+        }
+
+    try:
+        result = subprocess.run([mcporter, "config", "list"], capture_output=True, text=True, timeout=10, check=False)
+    except subprocess.TimeoutExpired:
+        return {"name": "exa_mcp", "status": "warn", "detail": "mcporter config list timed out", "path": mcporter}
+    except OSError as exc:
+        return {"name": "exa_mcp", "status": "warn", "detail": str(exc), "path": mcporter}
+
+    output = (result.stdout or result.stderr).strip()
+    if result.returncode != 0:
+        first_line = output.splitlines()[0] if output else "mcporter config list failed"
+        return {"name": "exa_mcp", "status": "warn", "detail": first_line, "path": mcporter}
+    if "exa" in output.lower():
+        return {"name": "exa_mcp", "status": "ok", "detail": "Exa MCP is configured in mcporter", "path": mcporter}
+    return {
+        "name": "exa_mcp",
+        "status": "missing",
+        "detail": "Exa MCP is not configured; run: mcporter config add exa https://mcp.exa.ai/mcp",
+        "path": mcporter,
+    }
+
+
 def detect_gh_install_command() -> list[str] | None:
     if platform.system() == "Darwin" and shutil.which("brew"):
         return ["brew", "install", "gh"]
@@ -128,6 +174,22 @@ def detect_xhs_upgrade_command() -> list[str] | None:
     if shutil.which("pipx"):
         return ["pipx", "upgrade", "xiaohongshu-cli"]
     return None
+
+
+def detect_mcporter_install_command() -> list[str] | None:
+    if shutil.which("npm"):
+        return ["npm", "install", "-g", "mcporter"]
+    return None
+
+
+def detect_mcporter_upgrade_command() -> list[str] | None:
+    if shutil.which("npm"):
+        return ["npm", "install", "-g", "mcporter@latest"]
+    return None
+
+
+def exa_config_command() -> list[str]:
+    return ["mcporter", "config", "add", "exa", "https://mcp.exa.ai/mcp"]
 
 
 def recommended_bili_install_commands() -> list[list[str]]:
@@ -210,6 +272,8 @@ def install_command_for_tool(tool: str, user: bool) -> list[str] | None:
         return detect_bili_install_command()
     if tool == "xhs":
         return detect_xhs_install_command()
+    if tool == "mcporter":
+        return detect_mcporter_install_command()
     raise ValueError(f"Unknown tool: {tool}")
 
 
@@ -232,6 +296,8 @@ def tool_already_ready(tool: str, report: dict[str, Any]) -> bool:
         return report["bilibili_cli"]["status"] == "ok"
     if tool == "xhs":
         return report["xiaohongshu_cli"]["status"] == "ok"
+    if tool == "mcporter":
+        return report["mcporter"]["status"] == "ok"
     return False
 
 
@@ -240,6 +306,8 @@ def build_report(user: bool) -> dict[str, Any]:
     gh = check_gh()
     bili = check_bili()
     xhs = check_xhs()
+    mcporter = check_mcporter()
+    exa_mcp = check_exa_mcp()
     return {
         "operation": "install",
         "project_root": str(project_root()),
@@ -273,13 +341,24 @@ def build_report(user: bool) -> dict[str, Any]:
             "installer_hint": xhs_installer_hint(),
             "manual_install_url": "https://pypi.org/project/xiaohongshu-cli/",
         },
+        "mcporter": {
+            **mcporter,
+            "install_command": detect_mcporter_install_command(),
+            "upgrade_command": detect_mcporter_upgrade_command(),
+            "manual_install_url": "https://www.npmjs.com/package/mcporter",
+        },
+        "exa_mcp": {
+            **exa_mcp,
+            "config_command": exa_config_command(),
+            "mcp_endpoint": "https://mcp.exa.ai/mcp",
+        },
     }
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check or prepare Auto Reach runtime environment.")
     parser.add_argument("--check", action="store_true", help="Only check environment status.")
-    parser.add_argument("--install", choices=["python", "gh", "bili", "xhs", "all"], help="Install missing dependencies explicitly.")
+    parser.add_argument("--install", choices=["python", "gh", "bili", "xhs", "mcporter", "all"], help="Install missing dependencies explicitly.")
     parser.add_argument("--dry-run", action="store_true", help="Show install commands without running them.")
     parser.add_argument("--user", action="store_true", help="Pass --user to pip install.")
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
@@ -290,7 +369,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     installs: list[dict[str, Any]] = []
 
     if args.install:
-        tools = ["python", "gh", "bili", "xhs"] if args.install == "all" else [args.install]
+        tools = ["python", "gh", "bili", "xhs", "mcporter"] if args.install == "all" else [args.install]
         for tool in tools:
             command = install_command_for_tool(tool, user=args.user)
             if command is None:
@@ -330,4 +409,5 @@ def main(argv: Sequence[str] | None = None) -> int:
     has_missing_gh = report["github_cli"]["status"] == "missing"
     has_missing_bili = report["bilibili_cli"]["status"] == "missing"
     has_missing_xhs = report["xiaohongshu_cli"]["status"] == "missing"
-    return 1 if has_missing_python or has_missing_gh or has_missing_bili or has_missing_xhs else 0
+    has_missing_mcporter = report["mcporter"]["status"] == "missing"
+    return 1 if has_missing_python or has_missing_gh or has_missing_bili or has_missing_xhs or has_missing_mcporter else 0

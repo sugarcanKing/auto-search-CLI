@@ -35,8 +35,10 @@ class SetupTests(unittest.TestCase):
     def test_web_dry_run_plans_pip_install_when_requirements_missing(self) -> None:
         with mock.patch.object(setup.doctor, "build_report", return_value={"project": "auto-reach"}):
             with mock.patch.object(setup.install, "missing_python_packages", return_value=["tavily-python"]):
-                with mock.patch.object(setup.subprocess, "run") as run:
-                    report = setup.build_setup_report("web", execute=False, upgrade=False, user=False)
+                with mock.patch.object(setup.install, "check_mcporter", return_value={"status": "ok"}):
+                    with mock.patch.object(setup.install, "check_exa_mcp", return_value={"status": "ok"}):
+                        with mock.patch.object(setup.subprocess, "run") as run:
+                            report = setup.build_setup_report("web", execute=False, upgrade=False, user=False)
 
         run.assert_not_called()
         self.assertEqual(report["target"], "web")
@@ -47,7 +49,9 @@ class SetupTests(unittest.TestCase):
     def test_web_dry_run_skips_when_requirements_ready(self) -> None:
         with mock.patch.object(setup.doctor, "build_report", return_value={"project": "auto-reach"}):
             with mock.patch.object(setup.install, "missing_python_packages", return_value=[]):
-                report = setup.build_setup_report("web", execute=False, upgrade=False, user=False)
+                with mock.patch.object(setup.install, "check_mcporter", return_value={"status": "ok"}):
+                    with mock.patch.object(setup.install, "check_exa_mcp", return_value={"status": "ok"}):
+                        report = setup.build_setup_report("web", execute=False, upgrade=False, user=False)
 
         self.assertEqual(report["steps"][0]["name"], "python_requirements_ready")
         self.assertEqual(report["steps"][0]["status"], "skipped")
@@ -59,17 +63,34 @@ class SetupTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"AUTO_REACH_ENV_FILE": str(dotenv)}, clear=True):
                 with mock.patch.object(setup.doctor, "build_report", return_value={"project": "auto-reach"}):
                     with mock.patch.object(setup.install, "missing_python_packages", return_value=[]):
-                        report = setup.build_setup_report("web", execute=False, upgrade=False, user=False)
+                        with mock.patch.object(setup.install, "check_mcporter", return_value={"status": "ok"}):
+                            with mock.patch.object(setup.install, "check_exa_mcp", return_value={"status": "ok"}):
+                                report = setup.build_setup_report("web", execute=False, upgrade=False, user=False)
 
         self.assertNotIn("Set TAVILY_API_KEY", repr(report["next_actions"]))
 
     def test_web_upgrade_plans_pip_upgrade(self) -> None:
         with mock.patch.object(setup.doctor, "build_report", return_value={"project": "auto-reach"}):
             with mock.patch.object(setup.install, "missing_python_packages", return_value=[]):
-                report = setup.build_setup_report("web", execute=False, upgrade=True, user=False)
+                with mock.patch.object(setup.install, "check_mcporter", return_value={"status": "ok"}):
+                    with mock.patch.object(setup.install, "check_exa_mcp", return_value={"status": "ok"}):
+                        with mock.patch.object(setup.install, "detect_mcporter_upgrade_command", return_value=["npm", "install", "-g", "mcporter@latest"]):
+                            report = setup.build_setup_report("web", execute=False, upgrade=True, user=False)
 
         self.assertIn("--upgrade", report["steps"][0]["command"])
         self.assertIn("-r", report["steps"][0]["command"])
+
+    def test_web_dry_run_plans_mcporter_and_exa_setup(self) -> None:
+        with mock.patch.object(setup.doctor, "build_report", return_value={"project": "auto-reach"}):
+            with mock.patch.object(setup.install, "missing_python_packages", return_value=[]):
+                with mock.patch.object(setup.install, "check_mcporter", return_value={"status": "missing"}):
+                    with mock.patch.object(setup.install, "check_exa_mcp", return_value={"status": "missing"}):
+                        with mock.patch.object(setup.install, "detect_mcporter_install_command", return_value=["npm", "install", "-g", "mcporter"]):
+                            report = setup.build_setup_report("web", execute=False, upgrade=False, user=False)
+
+        names = [step["name"] for step in report["steps"]]
+        self.assertIn("install_mcporter", names)
+        self.assertIn("configure_exa_mcp", names)
 
     def test_github_missing_plans_brew_install(self) -> None:
         with mock.patch.object(setup.doctor, "build_report", return_value={"project": "auto-reach"}):
